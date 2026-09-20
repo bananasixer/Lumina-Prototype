@@ -65,18 +65,17 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-      const legacy = localStorage.getItem("lumina_last_google_email") || "bananasixer@gmail.com";
-      return [{ email: legacy, name: legacy.split("@")[0], lastUsed: Date.now() }];
+      return [];
     } catch {
-      return [{ email: "bananasixer@gmail.com", name: "Bananasixer", lastUsed: Date.now() }];
+      return [];
     }
   });
 
   const [activeGoogleEmail, setActiveGoogleEmail] = useState<string>(() => {
     try {
-      return localStorage.getItem("lumina_last_google_email") || "bananasixer@gmail.com";
+      return localStorage.getItem("lumina_last_google_email") || "";
     } catch {
-      return "bananasixer@gmail.com";
+      return "";
     }
   });
 
@@ -92,7 +91,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
     } catch (e) {}
   }, []);
 
-  // Complete Google session with immediate resolution and unauthorized-domain immunity
+  // Complete Google session with user's own entered/selected account
   const completeGoogleSession = (selectedEmail: string, selectedName?: string, photo?: string | null) => {
     const cleanEmail = selectedEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes("@")) {
@@ -137,7 +136,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
       age: 25,
       ageVerified: true,
       ageAutoDetected: true,
-      isDemo: true
+      isDemo: false
     });
   };
 
@@ -168,7 +167,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
     }
   };
 
-  // Google Login handler: attempts native OAuth popup first, seamlessly falls back to account chooser if domain not whitelisted
+  // Google Login handler: attempts native OAuth popup first, never logs in as someone else on failure
   const handleGoogleLogin = async () => {
     setError(null);
     setLoading(true);
@@ -207,32 +206,31 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
           dob: "2000-01-01",
           age: 25,
           ageVerified: true,
-          ageAutoDetected: true
+          ageAutoDetected: true,
+          isDemo: false
         });
         setLoading(false);
         return;
       }
     } catch (err: any) {
       console.warn("Native Google OAuth popup notice:", err);
-      // If error is auth/unauthorized-domain, popup-blocked, or cancelled:
-      // If user has already entered an email in the form, sign in immediately with that email
-      if (email.trim() && email.includes("@")) {
-        completeGoogleSession(email.trim(), fullName.trim());
-        setLoading(false);
-        return;
-      }
-
-      // If active account exists and user clicked directly, prompt or use active
-      if (activeGoogleEmail) {
-        completeGoogleSession(activeGoogleEmail);
-        setLoading(false);
-        return;
-      }
-
-      // Otherwise open the Google Account Chooser modal so ANY user can sign in/up
-      setShowGoogleAccountModal(true);
       setLoading(false);
-      return;
+
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        // User closed or cancelled the popup - do not sign into anything
+        return;
+      }
+
+      if (err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
+        const currentDomain = typeof window !== "undefined" ? window.location.hostname : "";
+        setError(
+          `Domain (${currentDomain}) is not authorized yet for Google OAuth in Firebase Console. You can add it in Firebase Console → Authentication → Settings → Authorized domains, or use Email & Password below to sign in / register immediately.`
+        );
+        setShowGoogleAccountModal(true);
+        return;
+      }
+
+      setError(err.message || "Google sign-in could not be completed. Please try again or use Email & Password.");
     }
 
     setLoading(false);
@@ -297,7 +295,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
               age: 24,
               ageVerified: true,
               ageAutoDetected: true,
-              isDemo: true
+              isDemo: false
             });
             return;
           } catch (storageErr) {
@@ -332,7 +330,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         dob: "2000-01-01",
         age: 25,
         ageVerified: true,
-        ageAutoDetected: true
+        ageAutoDetected: true,
+        isDemo: false
       });
     } catch (err: any) {
       console.warn("Email Auth notice:", err);
@@ -357,7 +356,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
               age: 25,
               ageVerified: true,
               ageAutoDetected: true,
-              isDemo: true
+              isDemo: false
             });
             setLoading(false);
             return;
@@ -390,7 +389,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
             age: 25,
             ageVerified: true,
             ageAutoDetected: true,
-            isDemo: true
+            isDemo: false
           });
           setLoading(false);
           return;
@@ -938,29 +937,46 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                       </button>
 
                       {/* Google Account Status & Switcher */}
-                      <div className="flex items-center justify-between px-1 text-[11px] text-earth-500 font-mono">
-                        <span className="truncate flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                          <span className="truncate">
-                            {activeGoogleEmail ? (
-                              <>Account: <strong className="text-earth-800 font-semibold">{activeGoogleEmail}</strong></>
-                            ) : (
-                              <span>Use any Google account</span>
-                            )}
+                      {activeGoogleEmail ? (
+                        <div className="flex items-center justify-between px-1 text-[11px] text-earth-500 font-mono">
+                          <span className="truncate flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            <span className="truncate">
+                              Account: <strong className="text-earth-800 font-semibold">{activeGoogleEmail}</strong>
+                            </span>
                           </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCustomGoogleInput("");
-                            setCustomGoogleName("");
-                            setShowGoogleAccountModal(true);
-                          }}
-                          className="text-sage hover:text-earth-900 underline ml-2 shrink-0 cursor-pointer font-sans text-xs"
-                        >
-                          {activeGoogleEmail ? "Switch / Add" : "Choose Account"}
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomGoogleInput("");
+                              setCustomGoogleName("");
+                              setShowGoogleAccountModal(true);
+                            }}
+                            className="text-sage hover:text-earth-900 underline ml-2 shrink-0 cursor-pointer font-sans text-xs"
+                          >
+                            Switch / Add
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between px-1 text-[11px] text-earth-500 font-mono">
+                          <span className="truncate text-earth-400">
+                            Sign in with any Google account
+                          </span>
+                          {savedGoogleAccounts.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomGoogleInput("");
+                                setCustomGoogleName("");
+                                setShowGoogleAccountModal(true);
+                              }}
+                              className="text-sage hover:text-earth-900 underline ml-2 shrink-0 cursor-pointer font-sans text-xs"
+                            >
+                              Choose Account
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                       {/* Seamless Instant Bypass */}
                       <button
