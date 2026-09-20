@@ -28,6 +28,7 @@ import PublicAccountabilityView from "./components/PublicAccountabilityView";
 import GammaWavesBackground from "./components/GammaWavesBackground";
 import { RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { Analytics } from "@vercel/analytics/react";
 
 export default function App() {
   const [user, setUser] = useState<UserSession | null>(null);
@@ -503,6 +504,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <Analytics />
     </div>
   );
 }
