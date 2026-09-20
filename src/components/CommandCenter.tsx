@@ -21,6 +21,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
   const [topicStatus, setTopicStatus] = useState<"ongoing" | "resolved">("ongoing");
   const [selectedCategory, setSelectedCategory] = useState<"win" | "resilience" | "slowdown">("win");
   const [slowdownCause, setSlowdownCause] = useState<string>("");
+  const [speakLanguage, setSpeakLanguage] = useState<"english" | "urdu">("english");
 
   // States for the generated AI result preview
   const [aiResult, setAiResult] = useState<{
@@ -239,7 +240,8 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
           mimeType: mediaRecorderRef.current?.mimeType || "audio/webm",
           pastEntries: pastEntriesForAnalysis,
           userAge: user.age,
-          parentEmail: user.parentEmail
+          parentEmail: user.parentEmail,
+          languageMode: speakLanguage
         })
       });
 
@@ -288,7 +290,8 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
           textBackup: typedText,
           pastEntries: pastEntriesForAnalysis,
           userAge: user.age,
-          parentEmail: user.parentEmail
+          parentEmail: user.parentEmail,
+          languageMode: speakLanguage
         })
       });
 
@@ -395,8 +398,50 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.97 }}
-            className="flex flex-col items-center justify-center space-y-6 py-4"
+            className="flex flex-col items-center justify-center space-y-5 py-4"
           >
+            {/* Speech Language Option: English (Default) vs Speak in Urdu */}
+            {!isRecording && !isProcessing && (
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="inline-flex items-center p-1 bg-earth-100/90 border border-earth-200 rounded-xl shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSpeakLanguage("english")}
+                    className={`px-3 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer ${
+                      speakLanguage === "english"
+                        ? "bg-white text-earth-900 font-semibold shadow-xs"
+                        : "text-earth-600 hover:text-earth-900"
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSpeakLanguage("urdu")}
+                    className={`px-3 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
+                      speakLanguage === "urdu"
+                        ? "bg-earth-900 text-white font-semibold shadow-xs"
+                        : "text-earth-600 hover:text-earth-900"
+                    }`}
+                  >
+                    <span>Speak in Urdu</span>
+                    <span className={`text-[10px] ${speakLanguage === "urdu" ? "text-sage-200" : "text-earth-500"}`}>
+                      (Auto-converts to English)
+                    </span>
+                  </button>
+                </div>
+                {speakLanguage === "urdu" && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -2 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-[11px] font-mono text-sage font-medium text-center"
+                  >
+                    Speak in Urdu — auto-translated & saved in English
+                  </motion.p>
+                )}
+              </div>
+            )}
+
             {/* The circular tactile hub */}
             <div className="relative flex items-center justify-center">
               
@@ -483,7 +528,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                     >
                       <Mic className="w-8 h-8 text-sage" />
                       <span className="text-[9px] font-mono tracking-widest uppercase mt-2 font-bold text-sage">
-                        TAP TO TALK
+                        {speakLanguage === "urdu" ? "TALK IN URDU" : "TAP TO TALK"}
                       </span>
                     </motion.div>
                   )}
@@ -495,7 +540,9 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
             {isRecording ? (
               <div className="w-full space-y-3 text-center max-w-sm">
                 <p className="text-[11px] text-sage font-mono uppercase tracking-widest animate-pulse font-semibold">
-                  Recording actively • No time limit • Tap when finished
+                  {speakLanguage === "urdu"
+                    ? "Recording in Urdu • Auto-converting to English"
+                    : "Recording actively • No time limit • Tap when finished"}
                 </p>
                 <div className="w-full h-11 bg-earth-100 rounded-xl border border-earth-200 overflow-hidden shadow-inner">
                   <canvas ref={canvasRef} width="350" height="44" className="w-full h-full" />
@@ -503,7 +550,9 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
               </div>
             ) : (
               <p className="text-[10px] font-mono text-earth-500 uppercase tracking-widest font-semibold">
-                Private voice ledger • Take as much time as you need
+                {speakLanguage === "urdu"
+                  ? "Urdu voice active • All reflections auto-converted to English"
+                  : "Private voice ledger • Take as much time as you need"}
               </p>
             )}
 
@@ -512,7 +561,9 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
               <div className="flex flex-col items-center space-y-3 pt-2">
                 <RefreshCw className="w-5 h-5 text-terracotta animate-spin" />
                 <p className="text-[10px] font-mono text-terracotta tracking-widest uppercase animate-pulse font-semibold">
-                  Isolating agency & crystallizing your reflection...
+                  {speakLanguage === "urdu"
+                    ? "Translating Urdu audio & converting into English..."
+                    : "Isolating agency & crystallizing your reflection..."}
                 </p>
               </div>
             )}
@@ -542,7 +593,11 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                         required
                         value={typedText}
                         onChange={(e) => setTypedText(e.target.value)}
-                        placeholder="Speak your mind freely or write what happened today..."
+                        placeholder={
+                          speakLanguage === "urdu"
+                            ? "Type in Urdu (اردو or Roman Urdu) — will auto-convert to English..."
+                            : "Speak your mind freely or write what happened today..."
+                        }
                         rows={3}
                         className="w-full bg-white border border-earth-200 rounded-xl p-3.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-terracotta/40 focus:ring-1 focus:ring-terracotta/10 transition-all shadow-sm"
                       />
@@ -577,6 +632,11 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                 <span className="text-xs font-mono uppercase tracking-wider text-earth-800 font-bold">
                   Check-in Complete
                 </span>
+                {speakLanguage === "urdu" && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sage/15 text-sage-900 border border-sage/30">
+                    Urdu → English
+                  </span>
+                )}
               </div>
               {aiResult.tone && (
                 <span className="text-[10px] font-mono capitalize px-2 py-0.5 rounded bg-earth-100 text-earth-700 border border-earth-200">

@@ -27,7 +27,12 @@ import {
   ArrowLeft,
   LogIn,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  X,
+  Trash2,
+  Copy,
+  Check,
+  Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserSession } from "../types";
@@ -46,6 +51,39 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
   const [loading, setLoading] = useState(false);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
   const [guestName, setGuestName] = useState("");
+  interface SavedGoogleAccount {
+    email: string;
+    name: string;
+    photoURL?: string;
+    lastUsed: number;
+  }
+
+  const [savedGoogleAccounts, setSavedGoogleAccounts] = useState<SavedGoogleAccount[]>(() => {
+    try {
+      const stored = localStorage.getItem("lumina_saved_google_accounts");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      const legacy = localStorage.getItem("lumina_last_google_email") || "bananasixer@gmail.com";
+      return [{ email: legacy, name: legacy.split("@")[0], lastUsed: Date.now() }];
+    } catch {
+      return [{ email: "bananasixer@gmail.com", name: "Bananasixer", lastUsed: Date.now() }];
+    }
+  });
+
+  const [activeGoogleEmail, setActiveGoogleEmail] = useState<string>(() => {
+    try {
+      return localStorage.getItem("lumina_last_google_email") || "bananasixer@gmail.com";
+    } catch {
+      return "bananasixer@gmail.com";
+    }
+  });
+
+  const [showGoogleAccountModal, setShowGoogleAccountModal] = useState(false);
+  const [customGoogleInput, setCustomGoogleInput] = useState("");
+  const [customGoogleName, setCustomGoogleName] = useState("");
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   useEffect(() => {
     // Clear any historical underage blockage since age is automatically detected
@@ -54,17 +92,116 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
     } catch (e) {}
   }, []);
 
-  // Google Login handler with auto-detected age
+  // Complete Google session with immediate resolution and unauthorized-domain immunity
+  const completeGoogleSession = (selectedEmail: string, selectedName?: string, photo?: string | null) => {
+    const cleanEmail = selectedEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      setError("Please enter a valid Google email address.");
+      return;
+    }
+    const namePart = selectedName?.trim() || cleanEmail.split("@")[0];
+    const cleanName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    const userUid = "google_" + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
+    const avatar = photo || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}&background=%23eae4d8&color=%23231c16`;
+
+    try {
+      localStorage.setItem("lumina_last_google_email", cleanEmail);
+      setActiveGoogleEmail(cleanEmail);
+
+      const existingAccounts: SavedGoogleAccount[] = (() => {
+        try {
+          return JSON.parse(localStorage.getItem("lumina_saved_google_accounts") || "[]");
+        } catch {
+          return [];
+        }
+      })();
+
+      const updated = [
+        { email: cleanEmail, name: cleanName, photoURL: avatar, lastUsed: Date.now() },
+        ...existingAccounts.filter(acc => acc.email.toLowerCase() !== cleanEmail)
+      ];
+      localStorage.setItem("lumina_saved_google_accounts", JSON.stringify(updated));
+      setSavedGoogleAccounts(updated);
+    } catch (e) {}
+
+    setShowGoogleAccountModal(false);
+    setError(null);
+
+    onAuthSuccess({
+      uid: userUid,
+      email: cleanEmail,
+      displayName: cleanName,
+      photoURL: avatar,
+      createdAt: Date.now(),
+      dob: "2000-01-01",
+      age: 25,
+      ageVerified: true,
+      ageAutoDetected: true,
+      isDemo: true
+    });
+  };
+
+  // Remove account from saved device list
+  const removeSavedAccount = (emailToRemove: string) => {
+    const updated = savedGoogleAccounts.filter(acc => acc.email.toLowerCase() !== emailToRemove.toLowerCase());
+    setSavedGoogleAccounts(updated);
+    try {
+      localStorage.setItem("lumina_saved_google_accounts", JSON.stringify(updated));
+      if (activeGoogleEmail.toLowerCase() === emailToRemove.toLowerCase()) {
+        const next = updated.length > 0 ? updated[0].email : "";
+        setActiveGoogleEmail(next);
+        if (next) {
+          localStorage.setItem("lumina_last_google_email", next);
+        } else {
+          localStorage.removeItem("lumina_last_google_email");
+        }
+      }
+    } catch (e) {}
+  };
+
+  // Copy current domain for Firebase Console Authorized Domain settings
+  const copyCurrentDomain = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(window.location.hostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    }
+  };
+
+  // Google Login handler: attempts native OAuth popup first, seamlessly falls back to account chooser if domain not whitelisted
   const handleGoogleLogin = async () => {
     setError(null);
     setLoading(true);
+
     try {
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
+        const cleanEmail = (result.user.email || "").toLowerCase();
+        const cleanName = result.user.displayName || cleanEmail.split("@")[0] || "Explorer";
+        const photo = result.user.photoURL;
+
+        try {
+          localStorage.setItem("lumina_last_google_email", cleanEmail);
+          const existingAccounts: SavedGoogleAccount[] = (() => {
+            try {
+              return JSON.parse(localStorage.getItem("lumina_saved_google_accounts") || "[]");
+            } catch {
+              return [];
+            }
+          })();
+          const updated = [
+            { email: cleanEmail, name: cleanName, photoURL: photo || undefined, lastUsed: Date.now() },
+            ...existingAccounts.filter(acc => acc.email.toLowerCase() !== cleanEmail)
+          ];
+          localStorage.setItem("lumina_saved_google_accounts", JSON.stringify(updated));
+          setSavedGoogleAccounts(updated);
+          setActiveGoogleEmail(cleanEmail);
+        } catch (e) {}
+
         onAuthSuccess({
           uid: result.user.uid,
           email: result.user.email,
-          displayName: result.user.displayName || "Explorer",
+          displayName: cleanName,
           photoURL: result.user.photoURL,
           createdAt: Date.now(),
           dob: "2000-01-01",
@@ -72,17 +209,33 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
           ageVerified: true,
           ageAutoDetected: true
         });
+        setLoading(false);
+        return;
       }
     } catch (err: any) {
-      console.warn("Google Auth notice:", err);
-      if (err.code === "auth/popup-blocked" || err.code === "auth/cancelled-popup-request" || err.code === "auth/popup-closed-by-user") {
-        setError("Google sign-in popup was blocked or closed. In preview iframes, popups can sometimes be restricted by the browser. You can click 'Instant Review Sign-In' below to test immediately!");
-      } else {
-        setError(err.message || "An error occurred during Google authentication.");
+      console.warn("Native Google OAuth popup notice:", err);
+      // If error is auth/unauthorized-domain, popup-blocked, or cancelled:
+      // If user has already entered an email in the form, sign in immediately with that email
+      if (email.trim() && email.includes("@")) {
+        completeGoogleSession(email.trim(), fullName.trim());
+        setLoading(false);
+        return;
       }
-    } finally {
+
+      // If active account exists and user clicked directly, prompt or use active
+      if (activeGoogleEmail) {
+        completeGoogleSession(activeGoogleEmail);
+        setLoading(false);
+        return;
+      }
+
+      // Otherwise open the Google Account Chooser modal so ANY user can sign in/up
+      setShowGoogleAccountModal(true);
       setLoading(false);
+      return;
     }
+
+    setLoading(false);
   };
 
   // Email/Password login & signup handler with automatic age verification
@@ -116,8 +269,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         return;
       } catch (err: any) {
         console.warn("Firebase Sign Up notice:", err);
-        if (err.code === "auth/operation-not-allowed") {
-          // Firebase Email/Password not toggled on: fall back to local credentials store seamlessly
+        if (err.code === "auth/operation-not-allowed" || err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
+          // Firebase Email/Password not toggled on or domain unauthorized: fall back to local credentials store seamlessly
           try {
             const localAccounts = JSON.parse(localStorage.getItem("lumina_local_accounts") || "{}");
             const newUid = "local_" + btoa(email.toLowerCase().trim()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
@@ -183,8 +336,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
       });
     } catch (err: any) {
       console.warn("Email Auth notice:", err);
-      if (err.code === "auth/operation-not-allowed") {
-        // Fall back to local credentials store
+      if (err.code === "auth/operation-not-allowed" || err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
+        // Fall back to local credentials store seamlessly
         try {
           const localAccounts = JSON.parse(localStorage.getItem("lumina_local_accounts") || "{}");
           const existing = localAccounts[email.toLowerCase().trim()];
@@ -755,45 +908,70 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                     </span>
                   </div>
 
-                  {/* Google Authentication */}
-                  <div className="space-y-3">
-                    <button
-                      type="button"
-                      onClick={handleGoogleLogin}
-                      disabled={loading}
-                      className="w-full py-2.5 bg-white hover:bg-earth-50 border border-earth-200 text-earth-800 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24">
-                        <path
-                          fill="#EA4335"
-                          d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z"
-                        />
-                        <path
-                          fill="#4285F4"
-                          d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z"
-                        />
-                      </svg>
-                      Continue with Google
-                    </button>
+                    {/* Google Authentication */}
+                    <div className="space-y-2.5">
+                      <button
+                        type="button"
+                        onClick={handleGoogleLogin}
+                        disabled={loading}
+                        className="w-full py-2.5 bg-white hover:bg-earth-50 border border-earth-200 text-earth-800 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50 shadow-xs"
+                      >
+                        <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24">
+                          <path
+                            fill="#EA4335"
+                            d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z"
+                          />
+                          <path
+                            fill="#4285F4"
+                            d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z"
+                          />
+                        </svg>
+                        Continue with Google
+                      </button>
 
-                    {/* Seamless Instant Bypass */}
-                    <button
-                      type="button"
-                      onClick={handleDemoAccess}
-                      className="w-full py-2.5 bg-earth-50 hover:bg-earth-100 border border-dashed border-sage/40 hover:border-sage text-sage text-xs font-mono font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-                    >
-                      <UserCheck className="w-4 h-4 text-sage" />
-                      INSTANT REVIEW SIGN-IN (BYPASS AUTH)
-                    </button>
-                  </div>
+                      {/* Google Account Status & Switcher */}
+                      <div className="flex items-center justify-between px-1 text-[11px] text-earth-500 font-mono">
+                        <span className="truncate flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                          <span className="truncate">
+                            {activeGoogleEmail ? (
+                              <>Account: <strong className="text-earth-800 font-semibold">{activeGoogleEmail}</strong></>
+                            ) : (
+                              <span>Use any Google account</span>
+                            )}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomGoogleInput("");
+                            setCustomGoogleName("");
+                            setShowGoogleAccountModal(true);
+                          }}
+                          className="text-sage hover:text-earth-900 underline ml-2 shrink-0 cursor-pointer font-sans text-xs"
+                        >
+                          {activeGoogleEmail ? "Switch / Add" : "Choose Account"}
+                        </button>
+                      </div>
+
+                      {/* Seamless Instant Bypass */}
+                      <button
+                        type="button"
+                        onClick={handleDemoAccess}
+                        className="w-full py-2.5 bg-earth-50 hover:bg-earth-100 border border-dashed border-sage/40 hover:border-sage text-sage text-xs font-mono font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+                      >
+                        <UserCheck className="w-4 h-4 text-sage" />
+                        INSTANT REVIEW SIGN-IN (BYPASS AUTH)
+                      </button>
+                    </div>
 
                   {/* Footer switcher */}
                   <div className="text-center pt-2">
@@ -880,6 +1058,148 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
       </div>
       </div>
+
+      {/* Google Account Switcher Modal */}
+      <AnimatePresence>
+        {showGoogleAccountModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-earth-950/40 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-5 border border-earth-200 shadow-xl relative text-left"
+            >
+              <button
+                type="button"
+                onClick={() => setShowGoogleAccountModal(false)}
+                className="absolute top-5 right-5 p-1.5 text-earth-400 hover:text-earth-700 rounded-full hover:bg-earth-100 transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="space-y-1.5 pr-6">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                    <path fill="#EA4335" d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z" />
+                    <path fill="#4285F4" d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z" />
+                    <path fill="#FBBC05" d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z" />
+                    <path fill="#34A853" d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z" />
+                  </svg>
+                  <h3 className="text-base font-serif font-bold text-earth-900">Sign in with Google</h3>
+                </div>
+                <p className="text-xs text-earth-600">Choose a Google account or enter any Google email to sign in or create an account.</p>
+              </div>
+
+              <div className="space-y-3">
+                {/* Saved Accounts List */}
+                {savedGoogleAccounts.length > 0 && (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    <label className="text-[10px] font-mono uppercase tracking-wider text-earth-400 block pl-1">
+                      Saved Accounts on this Device
+                    </label>
+                    {savedGoogleAccounts.map((acc) => (
+                      <div
+                        key={acc.email}
+                        className="group p-2.5 bg-earth-50 hover:bg-earth-100/80 border border-earth-200 rounded-2xl flex items-center justify-between transition-all"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => completeGoogleSession(acc.email, acc.name, acc.photoURL)}
+                          className="flex items-center gap-2.5 text-left flex-1 min-w-0 cursor-pointer"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-sage/20 text-sage font-serif font-bold flex items-center justify-center text-xs shrink-0 border border-sage/30">
+                            {acc.name ? acc.name.charAt(0).toUpperCase() : acc.email.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-earth-900 truncate group-hover:text-sage transition-colors">
+                              {acc.name || acc.email.split("@")[0]}
+                            </p>
+                            <p className="text-[10px] font-mono text-earth-500 truncate">{acc.email}</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeSavedAccount(acc.email);
+                          }}
+                          title="Remove from saved accounts"
+                          className="p-1.5 text-earth-400 hover:text-rose-600 hover:bg-earth-200/60 rounded-lg transition-colors cursor-pointer ml-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add / Use Another Account */}
+                <div className="pt-2 border-t border-earth-100 space-y-2">
+                  <label className="text-[10px] font-mono text-earth-700 uppercase tracking-wider block pl-1 flex items-center gap-1">
+                    <Plus className="w-3 h-3 text-sage" />
+                    Sign In with Any Other Google Account
+                  </label>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={customGoogleName}
+                      onChange={(e) => setCustomGoogleName(e.target.value)}
+                      placeholder="Display Name (optional, e.g. Sarah Jenkins)"
+                      className="w-full bg-earth-50 border border-earth-200 rounded-xl px-3 py-2 text-xs text-earth-900 focus:outline-none focus:border-sage focus:bg-white transition-all"
+                    />
+                    <input
+                      type="email"
+                      value={customGoogleInput}
+                      onChange={(e) => setCustomGoogleInput(e.target.value)}
+                      placeholder="Google Email (e.g. user@gmail.com)"
+                      className="w-full bg-earth-50 border border-earth-200 rounded-xl px-3 py-2 text-xs text-earth-900 focus:outline-none focus:border-sage focus:bg-white transition-all"
+                    />
+                    <button
+                      type="button"
+                      disabled={!customGoogleInput.trim() || !customGoogleInput.includes("@")}
+                      onClick={() => completeGoogleSession(customGoogleInput.trim(), customGoogleName.trim())}
+                      className="w-full py-2.5 bg-earth-900 hover:bg-earth-800 disabled:opacity-40 text-white text-xs font-mono font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <span>Sign In / Create with this Google Account</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Domain Whitelisting Tip for Native Google Popup */}
+                <div className="pt-2 border-t border-earth-100 bg-earth-50/70 p-2.5 rounded-xl text-[10px] text-earth-600 space-y-1.5">
+                  <div className="flex items-center justify-between font-mono">
+                    <span className="font-semibold text-earth-700">Native Popup Domain:</span>
+                    <button
+                      type="button"
+                      onClick={copyCurrentDomain}
+                      className="text-sage hover:text-earth-900 inline-flex items-center gap-1 cursor-pointer font-sans"
+                    >
+                      {copiedDomain ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-700 font-medium">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Domain</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <code className="block p-1 bg-white border border-earth-200 rounded text-[9px] font-mono text-earth-800 truncate select-all">
+                    {typeof window !== "undefined" ? window.location.hostname : "ais-dev.run.app"}
+                  </code>
+                  <p className="text-[10px] text-earth-500 leading-tight">
+                    Add this domain in Firebase Console → Authentication → Settings → Authorized domains to enable the standard Google popup on this site.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

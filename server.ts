@@ -69,7 +69,7 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
 // API route: Analyze audio or text check-in
 app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { audio, mimeType, textBackup, pastEntries, userAge, parentEmail } = req.body;
+    const { audio, mimeType, textBackup, pastEntries, userAge, parentEmail, languageMode } = req.body;
 
     if (!audio && !textBackup) {
       res.status(400).json({ error: "Either audio or textBackup must be provided" });
@@ -79,9 +79,15 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     const ai = getGeminiClient();
     let contents: any[] = [];
 
+    const isUrduMode = languageMode === "urdu";
+
     const systemPrompt = `
       You are a warm, humble, and practical assistant for a daily check-in app.
       Your task is to transcribe what the user said, and summarize it in everyday, crystal-clear, simple English.
+
+      LANGUAGE & TRANSLATION DIRECTIVE:
+      - All output fields (including transcript, win, feedback, slowdownCause, and tags) MUST be returned in clear, everyday English.
+      ${isUrduMode ? `- SPEAK IN URDU MODE ACTIVE: The user is speaking (or writing) in Urdu (اردو), colloquial Urdu, or mixed Roman Urdu. Listen attentively to their Urdu audio. Accurately translate their spoken thoughts into clear, fluent, natural English for the "transcript" field. The saved transcript MUST be in plain English so the entire user journal and ledger remain consistently in English.` : `- If the user happens to speak in Urdu or any non-English language, automatically translate what they said into clear, fluent English for the "transcript" field and maintain all output in English.`}
 
       CRITICAL LANGUAGE RULE (ANTI-COMPLEXITY):
       - NEVER use big, fancy, academic, robotic, or AI words.
@@ -165,11 +171,19 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         },
       });
       contents.push({
-        text: systemPrompt + "\nAnalyze and accurately transcribe the user's voice check-in."
+        text: systemPrompt + (
+          isUrduMode
+            ? "\nThe user is speaking in Urdu. Listen to the audio carefully, auto-convert what they said into natural, clear English for the transcript, and summarize everything in simple everyday English."
+            : "\nAnalyze and accurately transcribe the user's voice check-in."
+        )
       });
     } else {
       contents.push({
-        text: systemPrompt + `\nAnalyze the following typed text reflection:\n"${textBackup}"`
+        text: systemPrompt + (
+          isUrduMode
+            ? `\nThe user provided this reflection in Urdu. Auto-translate it into fluent everyday English for the transcript and provide all insights in English:\n"${textBackup}"`
+            : `\nAnalyze the following typed text reflection:\n"${textBackup}"`
+        )
       });
     }
 
