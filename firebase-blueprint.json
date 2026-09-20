@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document and settings",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "accountabilityCircle": { "type": "object" }
+      }
+    },
+    "WinEntry": {
+      "title": "WinEntry",
+      "description": "Daily reflection entry in sovereign vault",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "win": { "type": "string" },
+        "category": { "type": "string" },
+        "slowdownCause": { "type": "string" },
+        "isWin": { "type": "boolean" },
+        "transcript": { "type": "string" },
+        "feedback": { "type": "string" },
+        "resiliencePoint": { "type": "boolean" },
+        "tags": { "type": "array" },
+        "status": { "type": "string" },
+        "tone": { "type": "string" },
+        "badHabits": { "type": "array" }
+      },
+      "required": ["userId", "win", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User settings and profile document"
+    },
+    "/users/{userId}/entries/{entryId}": {
+      "schema": "WinEntry",
+      "description": "Private win vault entries belonging to the user"
+    }
+  }
+}

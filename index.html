@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumina</title>
+    <meta name="description" content="A high-trust, frictionless voice companion that captures daily wins and manages stress." />
+    <meta property="og:title" content="Lumina" />
+    <meta property="og:description" content="A high-trust, frictionless voice companion that captures daily wins and manages stress." />
+    <script>
+      // Prevent crash: "Cannot set property fetch of #<Window> which has only a getter"
+      // This happens when sandbox iframe or extension tries to modify read-only fetch getter.
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          let currentFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return currentFetch;
+            },
+            set: function(val) {
+              currentFetch = val;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          console.warn("Lumina fetch guard initialization bypass:", e);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
