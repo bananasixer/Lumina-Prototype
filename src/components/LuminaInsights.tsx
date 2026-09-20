@@ -14,7 +14,7 @@ import {
   Clock 
 } from "lucide-react";
 import { motion } from "motion/react";
-import { getWeeklyMirrorData } from "../utils/sovereignMetrics";
+import { getWeeklyMirrorData, calculateStreak } from "../utils/sovereignMetrics";
 
 interface LuminaInsightsProps {
   entries: WinEntry[];
@@ -23,6 +23,9 @@ interface LuminaInsightsProps {
 
 export default function LuminaInsights({ entries, user }: LuminaInsightsProps) {
   const [showObservations, setShowObservations] = useState(true);
+
+  // 0. Streak Calculation for Mirror Module
+  const streak = useMemo(() => calculateStreak(entries), [entries]);
 
   // 1. Weekly Mirror: Strictly reflect back only what the user already said that week
   const weeklyMirror = useMemo(() => {
@@ -148,6 +151,49 @@ export default function LuminaInsights({ entries, user }: LuminaInsightsProps) {
         <p className="text-xs sm:text-sm text-earth-600 leading-relaxed max-w-xl">
           A quiet, non-punishing mirror reflecting back only what you spoke. No unsolicited commentary, no gamification badges, and no scolding.
         </p>
+      </div>
+
+      {/* Streak Module in Mirror */}
+      <div className="p-6 bg-white rounded-3xl border border-earth-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5" id="lumina-mirror-streak-module">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-sage" />
+            <span className="text-[11px] font-mono uppercase tracking-widest text-earth-500 font-semibold">
+              Reflection Streak
+            </span>
+          </div>
+          <div className="text-3xl sm:text-4xl font-serif font-bold text-earth-900">
+            {streak > 0 ? `Day ${streak}` : "Day 0"}
+          </div>
+          <p className="text-xs text-earth-600 max-w-sm">
+            {streak > 0
+              ? `You are on Day ${streak} of your continuous reflection streak.`
+              : "Complete a check-in today to unlock Day 1 of your reflection journey."}
+          </p>
+        </div>
+
+        {/* Visual Day Steps: Day 1, Day 2, etc. */}
+        <div className="flex items-center gap-2 bg-earth-50 p-2.5 rounded-2xl border border-earth-100 flex-wrap">
+          {[1, 2, 3, 4, 5, 6, 7].map((dayNum) => {
+            const isCompleted = streak >= dayNum;
+            const isCurrent = streak === dayNum - 1 && streak < 7;
+            return (
+              <div
+                key={dayNum}
+                className={`w-11 h-13 rounded-xl flex flex-col items-center justify-center text-[10px] font-mono transition-all ${
+                  isCompleted
+                    ? "bg-sage text-white font-bold shadow-2xs"
+                    : isCurrent
+                    ? "bg-white border-2 border-dashed border-sage text-sage font-semibold"
+                    : "bg-white/80 border border-earth-200 text-earth-400"
+                }`}
+              >
+                <span className="text-[9px] uppercase tracking-tighter opacity-80">Day</span>
+                <span className="text-sm font-bold leading-none mt-0.5">{dayNum}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* SECTION 1: THE WEEKLY MIRROR */}

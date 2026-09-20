@@ -1,8 +1,6 @@
-import React from "react";
-import { Shield, LogOut, Mic, FolderOpen, Info, ShieldCheck, Calendar, Award, Users } from "lucide-react";
-import { motion } from "motion/react";
+import React, { useState, useRef, useEffect } from "react";
+import { Menu, LogOut, Mic, FolderOpen, Info, Calendar, Award, Users, X, User as UserIcon } from "lucide-react";
 import { UserSession, WinEntry } from "../types";
-import { calculateStreak } from "../utils/sovereignMetrics";
 
 interface HeaderProps {
   user: UserSession;
@@ -12,34 +10,34 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-export default function Header({ user, entries, activeTab, setActiveTab, onLogout }: HeaderProps) {
-  const streak = calculateStreak(entries);
+export default function Header({ user, activeTab, setActiveTab, onLogout }: HeaderProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    }
+    if (isMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMenuOpen]);
 
   return (
-    <header className="border-b border-earth-200 bg-white/85 backdrop-blur-md sticky top-0 z-50 px-4 py-3" id="lumina-global-header">
+    <header className="border-b border-earth-200 bg-white/90 backdrop-blur-md sticky top-0 z-50 px-4 py-3" id="lumina-global-header">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
         
-        {/* Brand Identity */}
+        {/* Brand Identity: Clean Lumina Title */}
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-sage/10 rounded-lg border border-sage/20 text-sage">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div className="text-left">
-              <h1 className="text-lg font-serif font-bold text-earth-900 tracking-tight flex items-center gap-2">
-                LUMINA
-              </h1>
-              <p className="text-[9px] font-mono tracking-widest text-earth-500 uppercase">
-                Sovereign Reflection Suite
-              </p>
-            </div>
-          </div>
-
-          {/* Quiet Streak Indicator in Header */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-earth-100 border border-earth-200 text-xs font-mono text-earth-800">
-            <span className="w-2 h-2 rounded-full bg-sage" />
-            <span>Streak: {streak} {streak === 1 ? "day" : "days"}</span>
-          </div>
+          <h1 className="text-xl font-serif font-bold text-earth-900 tracking-tight">
+            Lumina
+          </h1>
         </div>
 
         {/* Tab Navigation Switches */}
@@ -123,35 +121,57 @@ export default function Header({ user, entries, activeTab, setActiveTab, onLogou
           </button>
         </nav>
 
-        {/* Profile & Logout */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-right">
-            <div className="hidden sm:block">
-              <div className="text-xs font-semibold text-earth-900 max-w-[120px] truncate">
-                {user.displayName || "User"}
-              </div>
-              <div className="text-[9px] font-mono text-sage flex items-center justify-end gap-1 font-semibold">
-                <ShieldCheck className="w-2.5 h-2.5" />
-                {user.isDemo ? "Guest Session" : "Vault Sovereign"}
-              </div>
-            </div>
-
-            <img 
-              src={user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${user.displayName || "U"}&background=%23eae4d8&color=%23231c16&radius=50`}
-              alt="Profile"
-              className="w-8 h-8 rounded-full border border-earth-200"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-
+        {/* 3-Lines Menu Button & Dropdown Drawer */}
+        <div className="relative" ref={menuRef}>
           <button
             type="button"
-            onClick={onLogout}
-            className="p-1.5 hover:bg-earth-100 rounded-lg text-earth-400 hover:text-red-600 transition-colors cursor-pointer"
-            title="Sign out of vault"
+            onClick={() => setIsMenuOpen((prev) => !prev)}
+            className="p-2 rounded-xl border border-earth-200 bg-earth-50 hover:bg-earth-100 text-earth-700 hover:text-earth-900 transition-colors cursor-pointer flex items-center justify-center shadow-2xs"
+            aria-label="Open user menu"
+            id="lumina-user-menu-btn"
           >
-            <LogOut className="w-4 h-4" />
+            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
+
+          {isMenuOpen && (
+            <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-earth-200 shadow-lg py-3 px-3 z-50 text-left animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="px-2 py-1.5 border-b border-earth-100 mb-2 space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-earth-100 flex items-center justify-center text-earth-700">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                  <div className="truncate">
+                    <div className="text-sm font-semibold text-earth-900 truncate">
+                      {user.displayName || "User"}
+                    </div>
+                    {user.email && (
+                      <div className="text-[11px] font-mono text-earth-500 truncate">
+                        {user.email}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="pt-1">
+                  <span className="inline-block text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-sage/10 text-sage font-medium">
+                    {user.isDemo ? "Guest Session" : "Active Account"}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  onLogout();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                id="lumina-logout-btn"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log Out</span>
+              </button>
+            </div>
+          )}
         </div>
 
       </div>
