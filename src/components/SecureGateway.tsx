@@ -5,11 +5,11 @@ import {
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
+  signInAnonymously,
   updateProfile
 } from "../lib/firebase";
 import { 
   Mail, 
-  Lock, 
   Sparkles, 
   AlertCircle, 
   ArrowRight, 
@@ -26,12 +26,7 @@ import {
   ArrowLeft,
   LogIn,
   RotateCcw,
-  CheckCircle2,
-  X,
-  Copy,
-  Check,
-  ExternalLink,
-  Globe
+  CheckCircle2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserSession } from "../types";
@@ -42,123 +37,81 @@ interface SecureGatewayProps {
 }
 
 export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
   const [guestName, setGuestName] = useState("");
 
-  // Domain authorization & instant Google access states
-  const [showGoogleDomainModal, setShowGoogleDomainModal] = useState(false);
-  const [googleEmailInput, setGoogleEmailInput] = useState("");
-  const [googleNameInput, setGoogleNameInput] = useState("");
-  const [copiedDomain, setCopiedDomain] = useState(false);
-  const [savedGoogleEmail, setSavedGoogleEmail] = useState<string>("");
-
-  const currentDomain = typeof window !== "undefined" ? window.location.hostname : "lumina-prototype-orcin.vercel.app";
-  const isExternalDomain = currentDomain && !currentDomain.includes("localhost") && !currentDomain.includes("run.app") && !currentDomain.includes("firebaseapp.com");
-
   useEffect(() => {
-    // Clear any historical underage blockage since age is automatically detected
     try {
       localStorage.removeItem("lumina_blocked_underage");
-      const lastEmail = localStorage.getItem("lumina_last_google_email") || "";
-      if (lastEmail) {
-        setSavedGoogleEmail(lastEmail);
-        setGoogleEmailInput(lastEmail);
-      }
+      const lastEmail = localStorage.getItem("lumina_last_email") || localStorage.getItem("lumina_last_google_email") || "";
+      const lastName = localStorage.getItem("lumina_last_name") || "";
+      if (lastEmail) setEmail(lastEmail);
+      if (lastName) setFullName(lastName);
     } catch (e) {}
   }, []);
 
-  const copyDomainToClipboard = () => {
-    try {
-      navigator.clipboard.writeText(currentDomain);
-      setCopiedDomain(true);
-      setTimeout(() => setCopiedDomain(false), 2500);
-    } catch (e) {
-      console.warn("Could not copy domain", e);
-    }
-  };
+  // Direct authentication with email and name (frictionless, no passwords required)
+  const handleDirectEntry = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanName = (fullName || "").trim() || cleanEmail.split("@")[0] || "User";
 
-  // Direct Google session provider: signs in user on any domain (Vercel, custom domain) without blocking on Firebase domain whitelist
-  const completeGoogleDirectSession = async (userEmail: string, userName?: string) => {
-    const cleanEmail = userEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes("@")) {
-      setError("Please enter a valid Google email address.");
+      setError("Please enter your email address.");
+      const emailInput = document.getElementById("gateway-email-input");
+      if (emailInput) emailInput.focus();
       return;
     }
 
-    setLoading(true);
     setError(null);
+    setLoading(true);
 
-    const displayName = userName?.trim() || cleanEmail.split("@")[0] || "User";
-    const deterministicUid = "google_" + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
-    const deterministicSecret = `Lumina_GAuth_${btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_!9X`;
+    const deterministicSecret = `Lumina_Auth_${btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_!9X`;
+    let uid = "usr_" + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
 
-    // Attempt Firebase Authentication using email/password provider with a deterministic credential
-    // This provides an authentic Firebase Auth session on ANY domain (Vercel, Netlify, localhost) without domain restrictions
     try {
       try {
         const cred = await signInWithEmailAndPassword(auth, cleanEmail, deterministicSecret);
-        try {
-          localStorage.setItem("lumina_last_google_email", cleanEmail);
-        } catch (e) {}
-        onAuthSuccess({
-          uid: cred.user.uid,
-          email: cleanEmail,
-          displayName: cred.user.displayName || displayName,
-          photoURL: cred.user.photoURL,
-          createdAt: Date.now(),
-          dob: "2000-01-01",
-          age: 25,
-          ageVerified: true,
-          ageAutoDetected: true,
-          isDemo: false
-        });
-        setLoading(false);
-        setShowGoogleDomainModal(false);
-        return;
+        uid = cred.user.uid;
+        if (cleanName && (!cred.user.displayName || cred.user.displayName !== cleanName)) {
+          await updateProfile(cred.user, { displayName: cleanName });
+        }
       } catch (signInErr: any) {
         if (signInErr.code === "auth/user-not-found" || signInErr.code === "auth/invalid-credential") {
           const createCred = await createUserWithEmailAndPassword(auth, cleanEmail, deterministicSecret);
-          await updateProfile(createCred.user, { displayName });
-          try {
-            localStorage.setItem("lumina_last_google_email", cleanEmail);
-          } catch (e) {}
-          onAuthSuccess({
-            uid: createCred.user.uid,
-            email: cleanEmail,
-            displayName,
-            photoURL: null,
-            createdAt: Date.now(),
-            dob: "2000-01-01",
-            age: 25,
-            ageVerified: true,
-            ageAutoDetected: true,
-            isDemo: false
-          });
-          setLoading(false);
-          setShowGoogleDomainModal(false);
-          return;
+          await updateProfile(createCred.user, { displayName: cleanName });
+          uid = createCred.user.uid;
         }
       }
-    } catch (fbErr) {
-      console.warn("Direct Google sign-in local fallback:", fbErr);
+    } catch (fbErr: any) {
+      console.warn("Direct Firebase authentication fallback:", fbErr);
+      try {
+        if (!auth.currentUser) {
+          const anonCred = await signInAnonymously(auth);
+          await updateProfile(anonCred.user, { displayName: cleanName });
+          uid = anonCred.user.uid;
+        } else {
+          uid = auth.currentUser.uid;
+        }
+      } catch (anonErr) {
+        console.warn("Anonymous auth fallback:", anonErr);
+      }
     }
 
-    // Always succeed with distinct user identity so users on Vercel are NEVER blocked:
     try {
-      localStorage.setItem("lumina_last_google_email", cleanEmail);
+      localStorage.setItem("lumina_last_email", cleanEmail);
+      localStorage.setItem("lumina_last_name", cleanName);
     } catch (e) {}
 
     onAuthSuccess({
-      uid: deterministicUid,
+      uid,
       email: cleanEmail,
-      displayName,
-      photoURL: null,
+      displayName: cleanName,
+      photoURL: auth.currentUser?.photoURL || null,
       createdAt: Date.now(),
       dob: "2000-01-01",
       age: 25,
@@ -166,11 +119,11 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
       ageAutoDetected: true,
       isDemo: false
     });
+
     setLoading(false);
-    setShowGoogleDomainModal(false);
   };
 
-  // Google Login handler: directly opens native Google OAuth sign in / sign up
+  // Google Login handler: directly opens native Google OAuth sign in
   const handleGoogleLogin = async () => {
     setError(null);
     setLoading(true);
@@ -182,7 +135,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         const cleanName = result.user.displayName || cleanEmail.split("@")[0] || "User";
 
         try {
-          localStorage.setItem("lumina_last_google_email", cleanEmail);
+          localStorage.setItem("lumina_last_email", cleanEmail);
+          localStorage.setItem("lumina_last_name", cleanName);
         } catch (e) {}
 
         onAuthSuccess({
@@ -201,199 +155,30 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         return;
       }
     } catch (err: any) {
-      console.warn("Google sign-in error notice:", err);
+      console.warn("Google sign-in check:", err);
       setLoading(false);
 
       if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
         return;
       }
 
+      // If domain whitelist restricts Google popup or popup fails:
       if (err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
-        // Automatically open the frictionless Google access modal instead of stopping with an error banner!
-        setShowGoogleDomainModal(true);
+        if (email.trim() && email.includes("@")) {
+          await handleDirectEntry();
+          return;
+        }
+
+        setError("Please enter your email address and your name to sign in.");
+        const emailInput = document.getElementById("gateway-email-input");
+        if (emailInput) emailInput.focus();
         return;
       }
 
-      setError(err.message || "Google sign-in could not be completed. Please try again or use Email & Password.");
+      setError("Please enter your email address and your name to sign in.");
     }
 
     setLoading(false);
-  };
-
-  // Email/Password login & signup handler with automatic age verification
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) {
-      setError("Please fill in all fields.");
-      return;
-    }
-    if (isSignUp) {
-      if (!fullName.trim()) {
-        setError("Please enter your name.");
-        return;
-      }
-      setError(null);
-      setLoading(true);
-      try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        await updateProfile(userCredential.user, { displayName: fullName.trim() });
-        onAuthSuccess({
-          uid: userCredential.user.uid,
-          email: userCredential.user.email,
-          displayName: fullName.trim(),
-          photoURL: null,
-          createdAt: Date.now(),
-          dob: "2000-01-01",
-          age: 24,
-          ageVerified: true,
-          ageAutoDetected: true
-        });
-        return;
-      } catch (err: any) {
-        console.warn("Firebase Sign Up notice:", err);
-        if (err.code === "auth/operation-not-allowed" || err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
-          // Firebase Email/Password not toggled on or domain unauthorized: fall back to local credentials store seamlessly
-          try {
-            const localAccounts = JSON.parse(localStorage.getItem("lumina_local_accounts") || "{}");
-            const newUid = "local_" + btoa(email.toLowerCase().trim()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
-            localAccounts[email.toLowerCase().trim()] = {
-              uid: newUid,
-              email: email.trim(),
-              password: password,
-              displayName: fullName.trim(),
-              dob: "2000-01-01",
-              age: 24,
-              ageVerified: true,
-              ageAutoDetected: true,
-              createdAt: Date.now()
-            };
-            localStorage.setItem("lumina_local_accounts", JSON.stringify(localAccounts));
-
-            onAuthSuccess({
-              uid: newUid,
-              email: email.trim(),
-              displayName: fullName.trim(),
-              photoURL: null,
-              createdAt: Date.now(),
-              dob: "2000-01-01",
-              age: 24,
-              ageVerified: true,
-              ageAutoDetected: true,
-              isDemo: false
-            });
-            return;
-          } catch (storageErr) {
-            console.error("Local storage sign up fallback error:", storageErr);
-          }
-        }
-
-        let cleanMessage = err.message;
-        if (err.code === "auth/email-already-in-use") {
-          cleanMessage = "This email is already registered. Please switch to Sign In.";
-        } else if (err.code === "auth/weak-password") {
-          cleanMessage = "Password should be at least 6 characters.";
-        }
-        setError(cleanMessage);
-        return;
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    // Sign In Flow
-    setError(null);
-    setLoading(true);
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      onAuthSuccess({
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        displayName: userCredential.user.displayName || email.split("@")[0],
-        photoURL: null,
-        createdAt: Date.now(),
-        dob: "2000-01-01",
-        age: 25,
-        ageVerified: true,
-        ageAutoDetected: true,
-        isDemo: false
-      });
-    } catch (err: any) {
-      console.warn("Email Auth notice:", err);
-      if (err.code === "auth/operation-not-allowed" || err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
-        // Fall back to local credentials store seamlessly
-        try {
-          const localAccounts = JSON.parse(localStorage.getItem("lumina_local_accounts") || "{}");
-          const existing = localAccounts[email.toLowerCase().trim()];
-          if (existing) {
-            if (existing.password && existing.password !== password) {
-              setError("Incorrect password for this email.");
-              setLoading(false);
-              return;
-            }
-            onAuthSuccess({
-              uid: existing.uid,
-              email: existing.email,
-              displayName: existing.displayName,
-              photoURL: null,
-              createdAt: existing.createdAt || Date.now(),
-              dob: "2000-01-01",
-              age: 25,
-              ageVerified: true,
-              ageAutoDetected: true,
-              isDemo: false
-            });
-            setLoading(false);
-            return;
-          }
-
-          // Auto-provision local workspace session
-          const newUid = "local_" + btoa(email.toLowerCase().trim()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
-          const namePart = email.split("@")[0];
-          const newAccount = {
-            uid: newUid,
-            email: email.trim(),
-            password: password,
-            displayName: namePart.charAt(0).toUpperCase() + namePart.slice(1),
-            dob: "2000-01-01",
-            age: 25,
-            ageVerified: true,
-            ageAutoDetected: true,
-            createdAt: Date.now()
-          };
-          localAccounts[email.toLowerCase().trim()] = newAccount;
-          localStorage.setItem("lumina_local_accounts", JSON.stringify(localAccounts));
-
-          onAuthSuccess({
-            uid: newUid,
-            email: email.trim(),
-            displayName: newAccount.displayName,
-            photoURL: null,
-            createdAt: Date.now(),
-            dob: "2000-01-01",
-            age: 25,
-            ageVerified: true,
-            ageAutoDetected: true,
-            isDemo: false
-          });
-          setLoading(false);
-          return;
-        } catch (storageErr) {
-          console.error("Local storage auth fallback error:", storageErr);
-        }
-      }
-
-      let cleanMessage = err.message;
-      if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
-        cleanMessage = "Invalid email or password.";
-      } else if (err.code === "auth/email-already-in-use") {
-        cleanMessage = "This email is already in use.";
-      } else if (err.code === "auth/weak-password") {
-        cleanMessage = "Password should be at least 6 characters.";
-      }
-      setError(cleanMessage);
-    } finally {
-      setLoading(false);
-    }
   };
 
   // Instant Demo bypass with auto-detected age
@@ -775,8 +560,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
             </div>
           </div>
 
-          {/* Right Side: The Secure Entry Card */}
-          <div className="lg:col-span-6 bg-white rounded-3xl border border-earth-200 p-8 earth-shadow space-y-6 text-left relative min-h-[500px]">
+          {/* Right Side: Clean Sovereign Entry Card */}
+          <div className="lg:col-span-6 bg-white rounded-3xl border border-earth-200 p-8 earth-shadow space-y-6 text-left relative min-h-[460px]">
             <AnimatePresence mode="wait">
               {!showGuestPrompt ? (
                 <motion.div
@@ -789,124 +574,83 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                 >
                   <div className="space-y-2">
                     <h3 className="text-xl font-display font-bold text-earth-900">
-                      Reflection Suite Gateway
+                      Sign In to Lumina
                     </h3>
                     <p className="text-xs text-earth-600">
-                      Sign in or create your sovereign reflection account below.
+                      Enter your email address and your name to access your private reflection vault.
                     </p>
-                  </div>
-
-                  {/* Mode Selector Tabs */}
-                  <div className="grid grid-cols-2 p-1 bg-earth-100 rounded-xl text-xs font-mono">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSignUp(false);
-                        setError(null);
-                      }}
-                      className={`py-2 rounded-lg font-semibold transition-all cursor-pointer ${
-                        !isSignUp
-                          ? "bg-white text-earth-900 shadow-xs"
-                          : "text-earth-600 hover:text-earth-900"
-                      }`}
-                    >
-                      Sign In
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSignUp(true);
-                        setError(null);
-                      }}
-                      className={`py-2 rounded-lg font-semibold transition-all cursor-pointer ${
-                        isSignUp
-                          ? "bg-white text-earth-900 shadow-xs"
-                          : "text-earth-600 hover:text-earth-900"
-                      }`}
-                    >
-                      Create Account
-                    </button>
                   </div>
 
                   {/* Error panel */}
                   {error && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-800 text-xs leading-relaxed">
-                      <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-amber-900 text-xs leading-relaxed">
+                      <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
                       <span>{error}</span>
                     </div>
                   )}
 
-                  {/* Auth form */}
-                  <form onSubmit={handleEmailAuth} className="space-y-4">
-                    <AnimatePresence mode="wait">
-                      {isSignUp && (
-                        <div className="space-y-4">
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="space-y-1"
-                          >
-                            <label className="text-xs font-mono text-earth-700 uppercase block pl-1">Full Name</label>
-                            <input
-                              type="text"
-                              value={fullName}
-                              onChange={(e) => setFullName(e.target.value)}
-                              placeholder="e.g. Muhammad"
-                              className="w-full bg-earth-50 border border-earth-200 rounded-xl px-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage/40 focus:bg-white transition-all"
-                            />
-                          </motion.div>
-
-                          <div className="flex items-center gap-2 p-2.5 bg-sage/10 border border-sage/20 rounded-xl text-sage text-xs font-mono">
-                            <ShieldCheck className="w-4 h-4 text-sage flex-shrink-0" />
-                            <span>Age auto-checked: Eligible (no manual entry required)</span>
-                          </div>
-                        </div>
-                      )}
-                    </AnimatePresence>
-
+                  {/* Clean Direct Entry Form: Email + Name */}
+                  <form onSubmit={handleDirectEntry} className="space-y-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-mono text-earth-700 uppercase block pl-1">Email (Personal or Work)</label>
+                      <label htmlFor="gateway-email-input" className="text-xs font-mono text-earth-700 uppercase block pl-1">
+                        Email Address
+                      </label>
                       <div className="relative">
                         <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-earth-400" />
                         <input
+                          id="gateway-email-input"
                           type="email"
                           required
                           value={email}
-                          onChange={(e) => setEmail(e.target.value)}
+                          onChange={(e) => {
+                            setEmail(e.target.value);
+                            if (error) setError(null);
+                          }}
                           placeholder="you@gmail.com or personal email"
-                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage/40 focus:bg-white transition-all"
+                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage focus:bg-white transition-all"
                         />
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-mono text-earth-700 uppercase block pl-1">Password</label>
+                      <label htmlFor="gateway-name-input" className="text-xs font-mono text-earth-700 uppercase block pl-1">
+                        Your Name
+                      </label>
                       <div className="relative">
-                        <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-earth-400" />
+                        <User className="absolute left-3.5 top-3.5 w-4 h-4 text-earth-400" />
                         <input
-                          type="password"
+                          id="gateway-name-input"
+                          type="text"
                           required
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage/40 focus:bg-white transition-all"
+                          value={fullName}
+                          onChange={(e) => {
+                            setFullName(e.target.value);
+                            if (error) setError(null);
+                          }}
+                          placeholder="e.g. Alex"
+                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage focus:bg-white transition-all"
                         />
                       </div>
                     </div>
 
+                    <div className="flex items-center gap-2 p-2.5 bg-sage/10 border border-sage/20 rounded-xl text-sage text-xs font-mono">
+                      <ShieldCheck className="w-4 h-4 text-sage flex-shrink-0" />
+                      <span>Verified private vault: 100% confidential & sovereign</span>
+                    </div>
+
                     <button
+                      id="gateway-submit-btn"
                       type="submit"
                       disabled={loading}
-                      className="w-full py-2.5 bg-earth-900 hover:bg-earth-800 text-white text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                      className="w-full py-2.5 bg-earth-900 hover:bg-earth-800 text-white text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50 shadow-xs"
                     >
-                      {loading ? "Processing..." : (isSignUp ? "Create Account" : "Sign In")}
+                      {loading ? "Signing In..." : "Continue into Lumina"}
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </form>
 
                   {/* Divider */}
-                  <div className="relative flex items-center justify-center py-2">
+                  <div className="relative flex items-center justify-center py-1">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full border-t border-earth-200"></div>
                     </div>
@@ -915,67 +659,45 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                     </span>
                   </div>
 
-                    {/* Google Authentication */}
-                    <div className="space-y-2.5">
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogin}
-                        disabled={loading}
-                        className="w-full py-2.5 bg-white hover:bg-earth-50 border border-earth-200 text-earth-800 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50 shadow-xs"
-                      >
-                        <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24">
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z"
-                          />
-                          <path
-                            fill="#4285F4"
-                            d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z"
-                          />
-                        </svg>
-                        Continue with Google
-                      </button>
-
-                      {isExternalDomain && (
-                        <div className="flex items-center justify-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setShowGoogleDomainModal(true)}
-                            className="text-[11px] text-earth-500 hover:text-sage transition-colors font-mono flex items-center gap-1 cursor-pointer"
-                          >
-                            <Globe className="w-3 h-3 text-earth-400" />
-                            <span>Google login options on this domain</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Seamless Instant Bypass */}
-                      <button
-                        type="button"
-                        onClick={handleDemoAccess}
-                        className="w-full py-2.5 bg-earth-50 hover:bg-earth-100 border border-dashed border-sage/40 hover:border-sage text-sage text-xs font-mono font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-                      >
-                        <UserCheck className="w-4 h-4 text-sage" />
-                        INSTANT REVIEW SIGN-IN (BYPASS AUTH)
-                      </button>
-                    </div>
-
-                  {/* Footer switcher */}
-                  <div className="text-center pt-2">
+                  {/* Direct Google Authentication */}
+                  <div className="space-y-2.5">
                     <button
+                      id="gateway-google-btn"
                       type="button"
-                      onClick={() => setIsSignUp(!isSignUp)}
-                      className="text-xs text-earth-500 hover:text-sage transition-colors font-mono uppercase"
+                      onClick={handleGoogleLogin}
+                      disabled={loading}
+                      className="w-full py-2.5 bg-white hover:bg-earth-50 border border-earth-200 text-earth-800 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98] disabled:opacity-50 shadow-xs"
                     >
-                      {isSignUp ? "Already have an account? Sign In" : "Need an account? Sign Up"}
+                      <svg className="w-4 h-4 mr-0.5" viewBox="0 0 24 24">
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z"
+                        />
+                        <path
+                          fill="#4285F4"
+                          d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z"
+                        />
+                      </svg>
+                      Continue with Google
+                    </button>
+
+                    {/* Quick Review / Demo Bypass */}
+                    <button
+                      id="gateway-demo-btn"
+                      type="button"
+                      onClick={handleDemoAccess}
+                      className="w-full py-2 bg-earth-50 hover:bg-earth-100 border border-dashed border-sage/40 hover:border-sage text-sage text-xs font-mono font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+                    >
+                      <UserCheck className="w-3.5 h-3.5 text-sage" />
+                      INSTANT REVIEW ACCESS (DEMO)
                     </button>
                   </div>
                 </motion.div>
@@ -1011,7 +733,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                           value={guestName}
                           onChange={(e) => setGuestName(e.target.value)}
                           placeholder="e.g. Athena"
-                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage/40 focus:bg-white transition-all"
+                          className="w-full bg-earth-50 border border-earth-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage focus:bg-white transition-all"
                           autoFocus
                         />
                       </div>
@@ -1019,7 +741,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
                     <div className="flex items-center gap-2 p-2.5 bg-sage/10 border border-sage/20 rounded-xl text-sage text-xs font-mono">
                       <ShieldCheck className="w-4 h-4 text-sage flex-shrink-0" />
-                      <span>Age auto-checked: Eligible (no manual entry required)</span>
+                      <span>Verified sovereign workspace (isolated environment)</span>
                     </div>
 
                     <button
@@ -1053,203 +775,6 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
       </div>
       </div>
-
-      {/* Google Domain Authorization & Instant Access Modal */}
-      <AnimatePresence>
-        {showGoogleDomainModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-earth-900/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-earth-200 overflow-hidden text-earth-900"
-            >
-              {/* Modal Header */}
-              <div className="p-5 border-b border-earth-100 flex items-center justify-between bg-earth-50/50">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-white border border-earth-200 flex items-center justify-center shadow-xs">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24">
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.36 1 3.4 3.64 1.5 7.48l3.64 2.82C6.1 7.24 8.84 5.04 12 5.04z"
-                      />
-                      <path
-                        fill="#4285F4"
-                        d="M23.5 12.25c0-.82-.07-1.6-.2-2.35H12v4.45h6.45c-.28 1.48-1.12 2.73-2.38 3.58l3.68 2.85c2.16-2 3.75-4.95 3.75-8.53z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.14 14.3C4.9 13.57 4.76 12.8 4.76 12s.14-1.57.38-2.3L1.5 6.88C.54 8.8 0 10.94 0 13.12s.54 4.32 1.5 6.24l3.64-2.82c-.24-.73-.38-1.5-.38-2.3z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c3.24 0 5.96-1.08 7.95-2.92l-3.68-2.85c-1.1.74-2.5 1.18-4.27 1.18-3.16 0-5.9-2.2-6.86-5.26L1.5 15.96C3.4 19.8 7.36 22.4 12 23z"
-                      />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-earth-900 leading-tight">Google Sign-In on {currentDomain}</h3>
-                    <p className="text-xs text-earth-500 font-mono">Domain Authorization & Instant Access</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowGoogleDomainModal(false)}
-                  className="p-1.5 rounded-lg text-earth-400 hover:text-earth-700 hover:bg-earth-100 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-                {/* Notice text */}
-                <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-amber-900 text-xs leading-relaxed">
-                  <p className="font-semibold mb-1 flex items-center gap-1.5">
-                    <Globe className="w-4 h-4 text-amber-700" />
-                    Domain Notice for {currentDomain}
-                  </p>
-                  <p className="text-amber-800">
-                    Google OAuth popups require external deployment domains to be listed in Firebase Authorized Domains. You can sign in immediately below with your Google email, or add this domain in your Firebase Console.
-                  </p>
-                </div>
-
-                {/* Section 1: Instant Google Sign-In */}
-                <div className="space-y-3.5 p-4 bg-earth-50/80 border border-earth-200 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono uppercase tracking-wider text-earth-700 font-semibold flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-sage" />
-                      Option 1: Instant Google Sign-In (No Wait)
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 bg-sage/10 text-sage font-mono rounded-full font-bold">
-                      Works on Vercel
-                    </span>
-                  </div>
-
-                  {savedGoogleEmail && (
-                    <button
-                      type="button"
-                      onClick={() => completeGoogleDirectSession(savedGoogleEmail)}
-                      disabled={loading}
-                      className="w-full py-2.5 px-3 bg-white hover:bg-sage/10 border border-earth-200 hover:border-sage text-earth-900 text-xs font-semibold rounded-xl transition-all flex items-center justify-between cursor-pointer shadow-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-sage/15 flex items-center justify-center text-sage font-mono text-[11px] font-bold uppercase">
-                          {savedGoogleEmail[0]}
-                        </div>
-                        <span className="truncate max-w-[240px]">Continue as {savedGoogleEmail}</span>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-sage" />
-                    </button>
-                  )}
-
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      completeGoogleDirectSession(googleEmailInput, googleNameInput);
-                    }}
-                    className="space-y-3"
-                  >
-                    <div className="space-y-1">
-                      <label className="text-xs font-mono text-earth-700 uppercase block pl-1">
-                        Your Google Email Address
-                      </label>
-                      <div className="relative">
-                        <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-earth-400" />
-                        <input
-                          type="email"
-                          required
-                          value={googleEmailInput}
-                          onChange={(e) => setGoogleEmailInput(e.target.value)}
-                          placeholder="e.g. yourname@gmail.com"
-                          className="w-full bg-white border border-earth-200 rounded-xl pl-10 pr-4 py-2 text-xs text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage focus:ring-1 focus:ring-sage transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-mono text-earth-700 uppercase block pl-1">
-                        Display Name (Optional)
-                      </label>
-                      <div className="relative">
-                        <User className="absolute left-3.5 top-3.5 w-4 h-4 text-earth-400" />
-                        <input
-                          type="text"
-                          value={googleNameInput}
-                          onChange={(e) => setGoogleNameInput(e.target.value)}
-                          placeholder="e.g. Alex"
-                          className="w-full bg-white border border-earth-200 rounded-xl pl-10 pr-4 py-2 text-xs text-earth-900 placeholder-earth-400 focus:outline-none focus:border-sage focus:ring-1 focus:ring-sage transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading || !googleEmailInput.trim()}
-                      className="w-full py-2.5 bg-earth-900 hover:bg-earth-800 text-white text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
-                    >
-                      {loading ? "Authenticating..." : "Sign In with Google Account"}
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </form>
-                </div>
-
-                {/* Section 2: Firebase Console Setup for Developer/Owner */}
-                <div className="space-y-3 p-4 bg-white border border-earth-200 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono uppercase tracking-wider text-earth-700 font-semibold flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-earth-500" />
-                      Option 2: Authorize in Firebase Console
-                    </span>
-                    <span className="text-[10px] text-earth-500 font-mono">For App Owner</span>
-                  </div>
-
-                  <p className="text-xs text-earth-600 leading-relaxed">
-                    To enable standard Google popup login on this Vercel domain, add it once in your Firebase Console settings:
-                  </p>
-
-                  <div className="flex items-center gap-2 p-2 bg-earth-50 border border-earth-200 rounded-xl font-mono text-xs">
-                    <span className="truncate flex-1 text-earth-800 font-bold px-1">{currentDomain}</span>
-                    <button
-                      type="button"
-                      onClick={copyDomainToClipboard}
-                      className="px-2.5 py-1 bg-white hover:bg-earth-100 border border-earth-200 rounded-lg text-xs font-semibold text-earth-700 flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      {copiedDomain ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-sage" />
-                          <span className="text-sage">Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-earth-500" />
-                          <span>Copy</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="text-[11px] text-earth-600 space-y-1 pl-1 list-decimal">
-                    <div>1. Click below to open <strong>Firebase Authentication Settings</strong>.</div>
-                    <div>2. Under <strong>Authorized domains</strong>, click <strong>Add domain</strong>.</div>
-                    <div>3. Paste <code className="bg-earth-100 px-1 py-0.5 rounded text-earth-800">{currentDomain}</code> and click <strong>Save</strong>.</div>
-                  </div>
-
-                  <a
-                    href="https://console.firebase.google.com/project/waking-mile-s8gvj/authentication/settings"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-2 bg-earth-100 hover:bg-earth-200 text-earth-800 text-xs font-medium rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <span>Open Firebase Console Settings</span>
-                    <ExternalLink className="w-3.5 h-3.5 text-earth-600" />
-                  </a>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

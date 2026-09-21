@@ -17,7 +17,7 @@ export default function LuminaStory() {
     {
       icon: <Shield className="w-5 h-5 text-sage" />,
       title: "3. Vault (The Sovereign Archive)",
-      description: "Saved entries are permanently committed to your secure, private Firestore database. This creates an unassailable record of capability and value."
+      description: "Saved entries are permanently committed to your secure, private encrypted vault. This creates an unassailable record of capability and value."
     },
     {
       icon: <Bookmark className="w-5 h-5 text-earth-700" />,

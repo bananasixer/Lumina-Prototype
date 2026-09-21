@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   updateProfile
 } from "firebase/auth";
 import { 
@@ -46,6 +47,7 @@ export {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   updateProfile,
   collection,
   addDoc,
