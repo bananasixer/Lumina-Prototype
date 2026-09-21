@@ -3,6 +3,8 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -43,6 +45,8 @@ googleProvider.addScope("email");
 
 export {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   signInWithEmailAndPassword,

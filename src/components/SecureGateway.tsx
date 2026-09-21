@@ -3,6 +3,7 @@ import {
   auth, 
   googleProvider, 
   signInWithPopup, 
+  signInWithRedirect,
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   signInAnonymously,
@@ -123,12 +124,13 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
     setLoading(false);
   };
 
-  // Google Login handler: directly opens native Google OAuth sign in
+  // Google Login handler: directly launches the real Google sign-in dialog / page
   const handleGoogleLogin = async () => {
     setError(null);
     setLoading(true);
 
     try {
+      // First try standard Google OAuth popup
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
         const cleanEmail = (result.user.email || "").toLowerCase();
@@ -155,30 +157,42 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         return;
       }
     } catch (err: any) {
-      console.warn("Google sign-in check:", err);
-      setLoading(false);
+      console.warn("Google sign-in popup attempt:", err);
 
       if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        setLoading(false);
         return;
       }
 
-      // If domain whitelist restricts Google popup or popup fails:
+      // If popup is blocked by iframe/sandbox, attempt full-page Google redirect:
+      if (
+        err.code === "auth/popup-blocked" || 
+        err.code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr) {
+          console.warn("Redirect fallback error:", redirectErr);
+        }
+      }
+
+      // If Google sign-in encounters unauthorized-domain, explain clearly or auto-proceed if email typed
       if (err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
         if (email.trim() && email.includes("@")) {
           await handleDirectEntry();
           return;
         }
-
-        setError("Please enter your email address and your name to sign in.");
+        setError("To sign in on this preview domain, please type your email and name in the fields above, then click Continue.");
         const emailInput = document.getElementById("gateway-email-input");
         if (emailInput) emailInput.focus();
+        setLoading(false);
         return;
       }
 
-      setError("Please enter your email address and your name to sign in.");
+      setError("Unable to open Google sign-in in this browser frame. Please type your email and name above to enter.");
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   // Instant Demo bypass with auto-detected age
