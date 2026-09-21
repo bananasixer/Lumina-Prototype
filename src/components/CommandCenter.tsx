@@ -22,6 +22,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
   const [selectedCategory, setSelectedCategory] = useState<"win" | "resilience" | "slowdown">("win");
   const [slowdownCause, setSlowdownCause] = useState<string>("");
   const [speakLanguage, setSpeakLanguage] = useState<"english" | "urdu">("english");
+  const [isEditing, setIsEditing] = useState(false);
 
   // States for the generated AI result preview
   const [aiResult, setAiResult] = useState<{
@@ -352,6 +353,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
 
     onEntrySaved(newEntry);
     setAiResult(null);
+    setIsEditing(false);
   };
 
   useEffect(() => {
@@ -626,7 +628,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
             className="p-6 sm:p-7 bg-white rounded-3xl border border-earth-200 shadow-md text-left space-y-5 relative overflow-hidden"
           >
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-earth-200 pb-3">
+            <div className="flex items-center justify-between border-b border-earth-200 pb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-terracotta" />
                 <span className="text-xs font-mono uppercase tracking-wider text-earth-800 font-bold">
@@ -638,12 +640,59 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                   </span>
                 )}
               </div>
-              {aiResult.tone && (
-                <span className="text-[10px] font-mono capitalize px-2 py-0.5 rounded bg-earth-100 text-earth-700 border border-earth-200">
-                  Tone: {aiResult.tone}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {aiResult.tone && (
+                  <span className="text-[10px] font-mono capitalize px-2 py-0.5 rounded bg-earth-100 text-earth-700 border border-earth-200">
+                    Tone: {aiResult.tone}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(!isEditing)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                    isEditing
+                      ? "bg-sage text-white border-sage font-bold shadow-xs"
+                      : "bg-earth-50 hover:bg-earth-100 text-earth-800 border-earth-200"
+                  }`}
+                  title="Edit check-in text, words or spellings"
+                >
+                  {isEditing ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Done Editing</span>
+                    </>
+                  ) : (
+                    <>
+                      <Edit3 className="w-3.5 h-3.5 text-sage" />
+                      <span>Edit Text</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+
+            {/* Edit mode notification banner */}
+            {isEditing && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 bg-sage/10 border border-sage/30 rounded-2xl text-xs flex items-center justify-between gap-3 text-left"
+              >
+                <div className="flex items-center gap-2 text-earth-900">
+                  <Edit3 className="w-4 h-4 text-sage shrink-0" />
+                  <span>
+                    <strong>Edit mode active:</strong> You can edit the main takeaway or speech text below to fix typos or misspelled words before saving.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-2.5 py-1 bg-sage text-white text-[11px] font-mono rounded-lg font-bold hover:bg-sage/90 transition-all shrink-0 cursor-pointer"
+                >
+                  Done
+                </button>
+              </motion.div>
+            )}
 
             {/* Clear Category Selection: Win vs Hard Moment vs Slowed Down */}
             <div className="space-y-1.5">
@@ -710,13 +759,36 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
             )}
 
             {/* Main Takeaway */}
-            <div className="space-y-1">
-              <h4 className="text-[10px] font-mono text-earth-400 uppercase tracking-widest font-semibold">
-                Main Takeaway
-              </h4>
-              <p className="text-base sm:text-lg font-serif text-earth-900 tracking-tight leading-snug">
-                "{aiResult.win}"
-              </p>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-mono text-earth-400 uppercase tracking-widest font-semibold flex items-center gap-1.5">
+                  <span>Main Takeaway</span>
+                  {isEditing && <span className="text-sage font-bold">(Editable)</span>}
+                </h4>
+                {!isEditing && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="text-[11px] font-mono text-sage hover:text-earth-900 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    <span>Edit</span>
+                  </button>
+                )}
+              </div>
+              {isEditing ? (
+                <textarea
+                  value={aiResult.win}
+                  onChange={(e) => setAiResult({ ...aiResult, win: e.target.value })}
+                  rows={2}
+                  className="w-full bg-earth-50/80 border border-sage/50 rounded-xl p-3 text-base sm:text-lg font-serif text-earth-900 focus:outline-none focus:border-sage focus:bg-white focus:ring-2 focus:ring-sage/20 transition-all shadow-inner leading-snug"
+                  placeholder="Edit takeaway text or correct spelling..."
+                />
+              ) : (
+                <p className="text-base sm:text-lg font-serif text-earth-900 tracking-tight leading-snug">
+                  "{aiResult.win}"
+                </p>
+              )}
             </div>
 
             {/* Explicit Crisis Banner if triggered */}
@@ -744,13 +816,38 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
 
             {/* What user said */}
             {aiResult.transcript && (
-              <div className="space-y-1 bg-earth-50 p-3 rounded-xl border border-earth-200">
-                <h4 className="text-[9px] font-mono text-earth-500 uppercase tracking-widest font-semibold">
-                  What You Said
-                </h4>
-                <p className="text-xs text-earth-600 leading-relaxed max-h-24 overflow-y-auto">
-                  {aiResult.transcript}
-                </p>
+              <div className={`space-y-1.5 p-3 rounded-xl border transition-all ${
+                isEditing ? "bg-earth-50 border-sage/40" : "bg-earth-50 border-earth-200"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[9px] font-mono text-earth-500 uppercase tracking-widest font-semibold flex items-center gap-1.5">
+                    <span>What You Said</span>
+                    {isEditing && <span className="text-sage font-bold">(Editable)</span>}
+                  </h4>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="text-[10px] font-mono text-sage hover:text-earth-900 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+                </div>
+                {isEditing ? (
+                  <textarea
+                    value={aiResult.transcript}
+                    onChange={(e) => setAiResult({ ...aiResult, transcript: e.target.value })}
+                    rows={3}
+                    className="w-full bg-white border border-earth-200 rounded-lg p-2.5 text-xs text-earth-900 focus:outline-none focus:border-sage focus:ring-1 focus:ring-sage/20 font-sans transition-all leading-relaxed"
+                    placeholder="Edit speech transcript to correct any words or spelling..."
+                  />
+                ) : (
+                  <p className="text-xs text-earth-600 leading-relaxed max-h-24 overflow-y-auto whitespace-pre-wrap">
+                    {aiResult.transcript}
+                  </p>
+                )}
               </div>
             )}
 
@@ -759,7 +856,10 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
               {aiResult.safetyTier === "crisis" ? (
                 <button
                   type="button"
-                  onClick={() => setAiResult(null)}
+                  onClick={() => {
+                    setAiResult(null);
+                    setIsEditing(false);
+                  }}
                   className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   Close & Take Care of Yourself
@@ -774,10 +874,37 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                     <BookmarkCheck className="w-4 h-4" />
                     Save Check-in
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setAiResult(null)}
-                    className="py-3 px-5 bg-earth-100 hover:bg-earth-200 text-earth-700 text-xs font-mono uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    onClick={() => setIsEditing(!isEditing)}
+                    className={`py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs font-mono uppercase tracking-wider border ${
+                      isEditing
+                        ? "bg-sage text-white border-sage hover:bg-sage/90 font-bold"
+                        : "bg-earth-100 hover:bg-earth-200 text-earth-800 border-earth-200"
+                    }`}
+                    title="Edit check-in text, words or spellings"
+                  >
+                    {isEditing ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Done Editing</span>
+                      </>
+                    ) : (
+                      <>
+                        <Edit3 className="w-3.5 h-3.5 text-sage" />
+                        <span>Edit Text</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiResult(null);
+                      setIsEditing(false);
+                    }}
+                    className="py-3 px-4 bg-earth-100 hover:bg-earth-200 text-earth-700 text-xs font-mono uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     Start Over
                   </button>
