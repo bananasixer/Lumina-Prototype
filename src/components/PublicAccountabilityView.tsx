@@ -71,7 +71,7 @@ export default function PublicAccountabilityView({
           <div className="p-4 bg-sage/5 border border-sage/20 rounded-2xl flex items-start gap-3">
             <Lock className="w-4 h-4 text-sage flex-shrink-0 mt-0.5" />
             <p className="text-xs text-earth-700 leading-relaxed">
-              <strong>Content Privacy Preserved:</strong> As an accountability partner, you are viewing streak consistency only. Reflective transcripts, audio recordings, and private wins are sovereign and never shared.
+              <strong>Content Privacy Preserved:</strong> As an accountability partner, you are viewing streak consistency only. Reflective transcripts, audio recordings, and private wins are strictly private and never shared.
             </p>
           </div>
 
@@ -85,7 +85,7 @@ export default function PublicAccountabilityView({
 
         <div className="bg-earth-50 px-6 py-3 border-t border-earth-200 text-center">
           <p className="text-[9px] font-mono text-earth-400 uppercase tracking-widest">
-            Protected by Lumina Sovereign Protocols • Zero Leaderboards
+            Protected by Lumina Privacy Protocols • Zero Leaderboards
           </p>
         </div>
       </motion.div>

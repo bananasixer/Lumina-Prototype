@@ -80,7 +80,7 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
   // Compile and Download Monthly Reflection Summary
   const handleDownloadSummary = () => {
     if (entries.length === 0) {
-      alert("There are no entries in your vault to compile into a summary.");
+      alert("There are no entries in your record to compile into a summary.");
       return;
     }
 
@@ -90,32 +90,32 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
     });
 
     let content = `========================================================================\n`;
-    content += ` LUMINA SOVEREIGN REFLECTION ARCHIVE & GENERAL GROWTH SUMMARY\n`;
+    content += ` LUMINA PRIVATE REFLECTION ARCHIVE & GENERAL GROWTH SUMMARY\n`;
     content += ` Period: ${todayStr}\n`;
     content += ` Export Date: ${new Date().toLocaleDateString()}\n`;
-    content += ` Total Saved Assets: ${entries.length} (${entries.filter(e => !e.resiliencePoint).length} Wins, ${entries.filter(e => e.resiliencePoint).length} Resilience Points)\n`;
+    content += ` Total Saved Entries: ${entries.length} (${entries.filter(e => !e.resiliencePoint).length} Wins, ${entries.filter(e => e.resiliencePoint).length} Resilience Points)\n`;
     content += `========================================================================\n\n`;
 
-    content += `--- EXECUTIVE OVERVIEW ---\n`;
+    content += `--- OVERVIEW ---\n`;
     content += `This document catalogs your daily micro-achievements, key alignments,\n`;
-    content += `and operational challenges defused, serving as your personal, encrypted\n`;
-    content += `ledger for self-reflection, milestone tracking, and sovereign growth.\n\n`;
+    content += `and operational challenges, serving as your personal\n`;
+    content += `ledger for self-reflection, milestone tracking, and personal growth.\n\n`;
 
     entries.forEach((entry, idx) => {
-      const type = entry.resiliencePoint ? "RESILIENCE POINT (DEFUSED CHALLENGE)" : "PROFESSIONAL WIN (IMPACT STATEMENT)";
-      content += `[Asset #${idx + 1}] - ${formatDate(entry.date)} - [${type}]\n`;
+      const type = entry.resiliencePoint ? "RESILIENCE POINT (CHALLENGE)" : "WIN (IMPACT STATEMENT)";
+      content += `[Entry #${idx + 1}] - ${formatDate(entry.date)} - [${type}]\n`;
       content += `------------------------------------------------------------------------\n`;
-      content += `SYNTHESIZED IMPACT:\n  "${entry.win}"\n\n`;
-      content += `LUMINA COMPANION FEEDBACK:\n  "${entry.feedback}"\n\n`;
+      content += `MAIN OUTCOME:\n  "${entry.win}"\n\n`;
+      content += `LUMINA FEEDBACK:\n  "${entry.feedback}"\n\n`;
       if (entry.transcript) {
-        content += `DECODED AUDIO REFLECTION:\n  "${entry.transcript}"\n\n`;
+        content += `TRANSCRIPT:\n  "${entry.transcript}"\n\n`;
       }
       content += `\n`;
     });
 
     content += `========================================================================\n`;
-    content += ` Lumina - "Capture your wins, catalog your resilience."\n`;
-    content += ` Protected in your private, self-sovereign professional archive.\n`;
+    content += ` Lumina - Private Record\n`;
+    content += ` Protected in your private personal archive.\n`;
     content += `========================================================================\n`;
 
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -123,7 +123,7 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
     const link = document.createElement("a");
     link.href = url;
     const sanitizedMonth = todayStr.replace(/\s+/g, "_");
-    link.download = `Lumina_Sovereign_Summary_${sanitizedMonth}.txt`;
+    link.download = `Lumina_Summary_${sanitizedMonth}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -133,13 +133,13 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
   return (
     <div className="space-y-6 max-w-3xl mx-auto px-4 py-4" id="win-vault-root">
       
-      {/* Vault header with organic counters */}
+      {/* Header with organic counters */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-earth-200 pb-5">
         <div className="space-y-1 text-left flex-1">
           <h2 className="text-xl md:text-2xl font-serif text-earth-900 tracking-tight flex items-center gap-2.5">
             <BookOpen className="w-5 h-5 text-sage" />
-            Sovereign Asset Vault
-            {/* Elegant tiny voice wave in vault */}
+            Private Record Archive
+            {/* Voice wave indicator */}
             <div className="flex items-center gap-0.5 h-3 ml-1.5">
               {[0.5, 0.3, 0.7, 0.4].map((v, i) => (
                 <motion.span
@@ -257,7 +257,7 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
       {filteredEntries.length === 0 ? (
         <div className="text-center py-16 bg-white border border-dashed border-earth-200 rounded-2xl p-6 shadow-sm">
           <AlertCircle className="w-10 h-10 text-earth-300 mx-auto mb-3 animate-pulse" />
-          <h3 className="text-earth-900 font-semibold text-base font-serif">No assets found in vault</h3>
+          <h3 className="text-earth-900 font-semibold text-base font-serif">No entries found in record</h3>
           <p className="text-earth-600 text-xs max-w-xs mx-auto mt-1">
             {searchTerm ? "No entries matched your search query. Try typing another keyword." : "Your archive is currently empty. Head over to the Command tab to express your first daily win!"}
           </p>
@@ -434,11 +434,11 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                           transition={{ duration: 0.25 }}
                           className="overflow-hidden mt-4 space-y-4 pt-4 border-t border-earth-200"
                         >
-                          {/* AI Companion Feedback */}
+                          {/* Feedback */}
                           <div className="space-y-1">
                             <h5 className="text-[10px] font-mono text-earth-400 uppercase tracking-widest flex items-center gap-1.5 font-bold">
                               <Sparkles className="w-3 h-3 text-sage" />
-                              Lumina Companion Feedback
+                              Lumina Feedback
                             </h5>
                             <p className="text-xs text-earth-600 italic pl-3.5 border-l-2 border-sage/30 py-0.5 leading-relaxed font-normal">
                               "{entry.feedback}"

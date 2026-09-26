@@ -36,7 +36,7 @@ export default function AgeVerification({ onVerified }: AgeVerificationProps) {
           {checking ? "Auto-Checking Age Eligibility..." : "Age Auto-Detected & Verified"}
         </h3>
         <p className="text-xs text-earth-600 max-w-sm mx-auto leading-relaxed">
-          No need to manually enter your age or date of birth. Your session has been verified eligible for Lumina Sovereign Workspace.
+          No need to manually enter your age or date of birth. Your session has been verified eligible for Lumina Workspace.
         </p>
       </div>
 
@@ -56,7 +56,7 @@ export default function AgeVerification({ onVerified }: AgeVerificationProps) {
 
       <div className="pt-2 border-t border-earth-100 text-center">
         <p className="text-[10px] font-mono text-earth-400 uppercase tracking-widest leading-relaxed">
-          Lumina Sovereign Privacy Protocol • Zero Ads • No Data Selling
+          Lumina Privacy Protocol • Zero Ads • No Data Selling
         </p>
       </div>
     </motion.div>

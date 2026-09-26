@@ -16,8 +16,8 @@ export default function LuminaStory() {
     },
     {
       icon: <Shield className="w-5 h-5 text-sage" />,
-      title: "3. Vault (The Sovereign Archive)",
-      description: "Saved entries are permanently committed to your secure, private encrypted vault. This creates an unassailable record of capability and value."
+      title: "3. Keep (The Private Archive)",
+      description: "Saved entries are permanently committed to your secure, private record. This creates an unassailable record of capability and value."
     },
     {
       icon: <Bookmark className="w-5 h-5 text-earth-700" />,
@@ -37,11 +37,11 @@ export default function LuminaStory() {
         className="text-center space-y-4"
       >
         <span className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-sage bg-sage/5 border border-sage/20 px-3 py-1 rounded-full">
-          The Philosophy of Self-Sovereignty
+          The Philosophy of Private Reflection
         </span>
         <h1 className="text-3xl md:text-5xl font-serif tracking-tight text-earth-900 mt-2">
-          Redefining Progress in the <br />
-          <span className="italic text-sage">Meaning Economy</span>
+          Redefining Progress in <br />
+          <span className="italic text-sage">Independent Work</span>
         </h1>
         <p className="text-earth-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
           Traditional social and professional channels capitalize on noisy alerts and cosmetic feedback. 
@@ -54,9 +54,9 @@ export default function LuminaStory() {
         <div className="text-center md:text-left space-y-1">
           <h2 className="text-xl md:text-2xl font-serif text-earth-900 flex items-center justify-center md:justify-start gap-2.5">
             <Layers className="w-5 h-5 text-sage" />
-            The 4-Step Sovereign Loop
+            What Actually Happens
           </h2>
-          <p className="text-earth-500 text-xs">A frictionless digital conveyor belt that transforms vocal reflection into absolute professional capital.</p>
+          <p className="text-earth-500 text-xs">A frictionless digital conveyor belt that transforms vocal reflection into an honest record.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -86,7 +86,7 @@ export default function LuminaStory() {
         </div>
       </div>
 
-      {/* Meaning Economy Manifesto Section */}
+      {/* Manifesto Section */}
       <motion.div 
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
@@ -99,17 +99,17 @@ export default function LuminaStory() {
         </span>
         <div className="space-y-6 mt-4">
           <h3 className="text-xl md:text-2xl font-serif text-earth-900">
-            The Professional Self-Sovereignty Strategy
+            The Private Reflection Strategy
           </h3>
           <div className="space-y-4 text-earth-600 text-sm leading-relaxed font-normal">
             <p>
-              We are transitioning past the age of information abundance. The scarce asset of our time is depth—the <span className="text-earth-900 font-semibold">Meaning Economy</span>. In this new dynamic, true value lies in mental clarity, objective self-cataloging, and persistent personal resilience.
+              We are transitioning past the age of information abundance. The scarce asset of our time is depth and focus. In this new dynamic, true value lies in mental clarity, objective self-cataloging, and persistent personal resilience.
             </p>
             <p>
-              Lumina acts as your private vault. By removing the administrative chore of writing, organizing, or formatting your achievements, you are free to capture high-resolution moments of triumph and agency exactly when they unfold.
+              Lumina acts as your private record. By removing the administrative chore of writing, organizing, or formatting your achievements, you are free to capture moments of accomplishment and agency exactly when they unfold.
             </p>
             <p>
-              Whether you handled a difficult conflict, protected a colleague under pressure, or quietly fixed a critical pipeline issue, that is your genuine professional equity. Lumina extracts, structures, and archives it safely.
+              Whether you handled a difficult conflict, protected a colleague under pressure, or quietly fixed a critical pipeline issue, that is your genuine effort. Lumina extracts, structures, and archives it safely.
             </p>
           </div>
 
@@ -132,7 +132,7 @@ export default function LuminaStory() {
               <Award className="w-5 h-5 text-gold-ochre flex-shrink-0" />
               <div>
                 <h4 className="text-xs font-mono text-earth-800 font-semibold uppercase">Value Preservation</h4>
-                <p className="text-[10px] text-earth-500">Convert micro-moments into powerful career proof.</p>
+                <p className="text-[10px] text-earth-500">Convert micro-moments into personal proof.</p>
               </div>
             </div>
           </div>
@@ -143,12 +143,12 @@ export default function LuminaStory() {
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start border-t border-earth-200 pt-10 text-left">
         <div className="md:col-span-7 space-y-4">
           <span className="text-xs font-mono uppercase tracking-wider text-sage">OUR VISION</span>
-          <h3 className="text-2xl font-serif text-earth-900">About Lumina Technologies</h3>
+          <h3 className="text-2xl font-serif text-earth-900">About Lumina</h3>
           <p className="text-earth-600 text-sm leading-relaxed">
-            Lumina was built by a sovereign collective of high-performance product designers, engineers, and researchers. We believe software should respect human psychology rather than commodify attention through psychological hacks.
+            Lumina is built by one person: Muhammad Yahya Amar, a student in Pakistan. There is no company, no team and no investors behind it. We believe software should respect human psychology rather than commodify attention through psychological hacks.
           </p>
           <p className="text-earth-500 text-xs">
-            We operate out of strict privacy protocols, and our entire pipeline is designed around user self-sovereignty. We do not sell, rent, or leverage your reflections for general model training.
+            We operate out of strict privacy protocols, and our entire pipeline is designed around user privacy. We do not sell, rent, or leverage your reflections for general model training.
           </p>
         </div>
         <div className="md:col-span-5 bg-white p-6 rounded-2xl border border-earth-200 space-y-4 earth-shadow">

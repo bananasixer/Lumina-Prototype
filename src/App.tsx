@@ -26,6 +26,7 @@ import AccountabilityCircle from "./components/AccountabilityCircle";
 import PublicVerification from "./components/PublicVerification";
 import PublicAccountabilityView from "./components/PublicAccountabilityView";
 import GammaWavesBackground from "./components/GammaWavesBackground";
+import PrivacyPolicy from "./components/PrivacyPolicy";
 import { RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -35,6 +36,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"command" | "vault" | "insights" | "card" | "circle" | "story">("command");
   const [entries, setEntries] = useState<WinEntry[]>([]);
   const [sharedEntryId, setSharedEntryId] = useState<string | null>(null);
+  const [showPrivacy, setShowPrivacy] = useState<boolean>(
+    typeof window !== "undefined" && window.location.pathname === "/privacy"
+  );
   const [publicAccountability, setPublicAccountability] = useState<{
     userName: string;
     streakCount: number;
@@ -43,6 +47,11 @@ export default function App() {
 
   // Check URL query params on mount for external verification or accountability partner view
   useEffect(() => {
+    const handleLocationChange = () => {
+      setShowPrivacy(window.location.pathname === "/privacy");
+    };
+    window.addEventListener("popstate", handleLocationChange);
+
     const params = new URLSearchParams(window.location.search);
     const id = params.get("sharedEntryId");
     if (id) {
@@ -58,6 +67,10 @@ export default function App() {
         totalCheckins: total,
       });
     }
+
+    return () => {
+      window.removeEventListener("popstate", handleLocationChange);
+    };
   }, []);
 
   const handleCloseVerification = () => {
@@ -345,8 +358,16 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-earth-50 text-earth-900 font-sans flex flex-col selection:bg-terracotta/10 selection:text-earth-900">
-      {/* 1. Public Verification View (accessed via shared link) */}
-      {sharedEntryId ? (
+      {/* 0. Privacy Policy View */}
+      {showPrivacy ? (
+        <PrivacyPolicy
+          onBack={() => {
+            setShowPrivacy(false);
+            window.history.pushState({}, "", "/");
+          }}
+        />
+      ) : sharedEntryId ? (
+        /* 1. Public Verification View (accessed via shared link) */
         <PublicVerification 
           sharedEntryId={sharedEntryId} 
           onClose={handleCloseVerification} 
@@ -363,11 +384,17 @@ export default function App() {
         <div className="flex-1 flex flex-col items-center justify-center space-y-4 min-h-[70vh]">
           <RefreshCw className="w-8 h-8 text-terracotta animate-spin" />
           <p className="text-xs font-mono text-terracotta uppercase tracking-widest animate-pulse font-bold">
-            Unlocking Private Vault...
+            Opening Private Record...
           </p>
         </div>
       ) : !user ? (
-        <SecureGateway onAuthSuccess={handleAuthSuccess} />
+        <SecureGateway
+          onAuthSuccess={handleAuthSuccess}
+          onOpenPrivacy={() => {
+            setShowPrivacy(true);
+            window.history.pushState({}, "", "/privacy");
+          }}
+        />
       ) : (
         <div className="flex-1 flex flex-col relative overflow-hidden">
           
@@ -493,12 +520,22 @@ export default function App() {
             </main>
 
             {/* Footer */}
-            <footer className="border-t border-earth-200 bg-white/80 py-4 text-center mt-auto">
-              <p className="text-[10px] font-mono text-earth-500 flex items-center justify-center gap-2 uppercase tracking-widest font-semibold">
-                <span>Lumina Sovereign Reflection Suite</span>
-                <span className="w-1.5 h-1.5 bg-sage rounded-full" />
-                <span>Protected In Private Vault</span>
-              </p>
+            <footer className="border-t border-earth-200 bg-white/80 py-4 px-4 text-center mt-auto">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-[11px] font-mono text-earth-500">
+                <span className="font-semibold uppercase tracking-wider">Lumina Private Record</span>
+                <span className="hidden sm:inline w-1 h-1 bg-earth-300 rounded-full" />
+                <span>Adults 18+</span>
+                <span className="hidden sm:inline w-1 h-1 bg-earth-300 rounded-full" />
+                <button
+                  onClick={() => {
+                    setShowPrivacy(true);
+                    window.history.pushState({}, "", "/privacy");
+                  }}
+                  className="text-terracotta hover:underline font-medium cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              </div>
             </footer>
           </div>
         </div>

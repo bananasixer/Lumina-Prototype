@@ -1,6 +1,6 @@
 {
   "name": "Lumina",
-  "description": "A high-trust, frictionless voice companion that captures daily wins and manages stress.",
+  "description": "A voice-first private record for people building something on their own to capture daily wins and track progress.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

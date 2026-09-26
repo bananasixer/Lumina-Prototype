@@ -56,7 +56,7 @@ export default function GammaWavesBackground() {
         />
       </svg>
 
-      {/* Wave 3: Double-Frequency Premium Sound Wave line */}
+      {/* Wave 3: Double-Frequency Sound Wave line */}
       <svg
         className="absolute top-[68%] left-0 w-[200%] h-24 opacity-[0.04] text-sage/60"
         viewBox="0 0 1440 120"

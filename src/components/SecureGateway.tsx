@@ -35,9 +35,10 @@ import GammaWavesBackground from "./GammaWavesBackground";
 
 interface SecureGatewayProps {
   onAuthSuccess: (user: UserSession) => void;
+  onOpenPrivacy?: () => void;
 }
 
-export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
+export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGatewayProps) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -199,8 +200,8 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
   const handleDemoAccess = () => {
     onAuthSuccess({
       uid: "demo-user-" + Math.random().toString(36).substring(2, 8),
-      email: "visitor@meaning-economy.com",
-      displayName: "Guest Sovereign",
+      email: "guest@lumina.local",
+      displayName: "Guest",
       photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=Guest&background=%23eae4d8&color=%23231c16`,
       isDemo: true,
       createdAt: Date.now(),
@@ -213,10 +214,10 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
   const handleCustomGuestAccess = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalName = guestName.trim() || "Guest Sovereign";
+    const finalName = guestName.trim() || "Guest";
     onAuthSuccess({
       uid: "guest_" + Math.random().toString(36).substring(2, 8),
-      email: "visitor@meaning-economy.com",
+      email: "guest@lumina.local",
       displayName: finalName,
       photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(finalName)}&background=%23eae4d8&color=%23231c16`,
       isDemo: true,
@@ -228,31 +229,31 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
     });
   };
 
-  // 4-Step Loop info structure
+  // What actually happens 4-step info structure
   const loopSteps = [
     {
       num: "I",
       icon: <Mic className="w-5 h-5 text-terracotta" />,
-      title: "Talk freely",
-      desc: "Record your raw, stream-of-consciousness reflection for as long as you need — no timers, no cutoff."
+      title: "You say it",
+      desc: "talk for as long as you need, no timer, nothing is scored."
     },
     {
       num: "II",
       icon: <Sparkles className="w-5 h-5 text-gold-ochre" />,
-      title: "Extract agency",
-      desc: "Lumina isolates specific wins and resilience points grounded directly in what you actually spoke."
+      title: "Lumina answers",
+      desc: "an immediate reply about something specific you actually said."
     },
     {
       num: "III",
       icon: <ShieldCheck className="w-5 h-5 text-sage" />,
-      title: "Vault securely",
-      desc: "Each extracted win is permanently stored in your private, sovereign reflection archive."
+      title: "It is kept",
+      desc: "saved to your private record, no other user can see it."
     },
     {
       num: "IV",
       icon: <BookOpen className="w-5 h-5 text-earth-700" />,
-      title: "Trace trajectory",
-      desc: "An objective, calm personal ledger of accomplishments and personal growth over time."
+      title: "It is read back to you",
+      desc: "at 7, 14 and 30 days Lumina shows you the pattern, including what you missed."
     }
   ];
 
@@ -269,7 +270,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
       {/* Decorative Warm Top Line */}
       <div className="w-full h-1.5 bg-gradient-to-r from-terracotta via-gold-ochre to-sage" />
 
-      {/* Floating Organic/Abstract Background Blobs for extreme visual depth & premium feel */}
+      {/* Floating Organic/Abstract Background Blobs for visual depth */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
         <GammaWavesBackground />
         <motion.div
@@ -334,40 +335,39 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
         {/* Hero Section */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
           
-          {/* Left Column: Premium Editorial Copy */}
+          {/* Left Column: Editorial Copy */}
           <div className="lg:col-span-7 space-y-6 text-left">
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-terracotta bg-terracotta/5 border border-terracotta/20 px-3 py-1 rounded-full">
-              <Sparkles className="w-3 h-3" /> Absolute Professional Self-Sovereignty
+              <Sparkles className="w-3 h-3" /> FOR PEOPLE BUILDING ALONE
             </span>
             <h2 className="text-4xl md:text-5xl lg:text-6xl font-serif text-earth-900 tracking-tight leading-[1.1]">
-              Capture your wins. <br />
-              <span className="italic text-terracotta">Catalog your resilience.</span>
+              Nobody to talk to about it?
             </h2>
-            {/* Elegant Introductory text */}
+            {/* Introductory text */}
             <p className="text-sm md:text-base text-earth-600 font-normal leading-relaxed max-w-xl">
-              Lumina is a premium, zero-friction vocal companion designed to protect your mental clarity and log your professional sovereignty.
+              Lumina is a voice-first private record for people building something on their own — a business, a skill, or just trying to earn independently. Speak for as long as you want. Lumina replies to something specific you actually said, and keeps an honest record of what you did.
             </p>
 
-            {/* Sleek Stagger-Animated Bullet Points */}
+            {/* Feature Cards */}
             <div className="space-y-4 max-w-xl pt-1">
               {[
                 {
-                  title: "Instant Vocal Offloading",
-                  desc: "Speak for 2 seconds. Lumina immediately decodes and structure-catalogs transient daily achievements.",
+                  title: "Speak for as long as you want",
+                  desc: "No timer, no cutoff, no prompts to fill in. Lumina answers immediately, grounded in something specific you just said.",
                   icon: <Mic className="w-4 h-4 text-terracotta" />,
                   bg: "bg-terracotta/5",
                   border: "border-terracotta/10"
                 },
                 {
-                  title: "Sovereign Private Ledger",
-                  desc: "Your recordings and structured transcripts are private, secure, and fully owned by you.",
+                  title: "An honest record, not encouragement",
+                  desc: "\"Did I Win?\" cards at 7, 14 and 30 days show what you won, what kept repeating, and the days you missed. Your streak quietly restarts after a missed day instead of punishing you.",
                   icon: <ShieldCheck className="w-4 h-4 text-sage" />,
                   bg: "bg-sage/5",
                   border: "border-sage/10"
                 },
                 {
-                  title: "Dynamic Value Synthesis",
-                  desc: "Convert everyday micro-wins into impact-oriented templates ready for appraisals and promotion cycles.",
+                  title: "Hard moments stay private",
+                  desc: "A hard moment is never surfaced back to you. It only becomes a growth story when the same struggle returns later.",
                   icon: <Sparkles className="w-4 h-4 text-gold-ochre" />,
                   bg: "bg-gold-ochre/5",
                   border: "border-gold-ochre/10"
@@ -478,7 +478,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
             <div className="mt-8 w-full max-w-[180px] flex flex-col items-center space-y-2 z-10">
               <div className="flex items-center gap-1.5 text-[9px] font-mono font-semibold text-sage uppercase tracking-widest">
                 <span className="w-1.5 h-1.5 rounded-full bg-sage animate-ping" />
-                Sovereign Waves
+                Sound Waves
               </div>
 
               {/* Shorter, highly refined visualizer curve with no container background */}
@@ -515,10 +515,10 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
           <div className="text-center space-y-2">
             <span className="text-[10px] font-mono uppercase tracking-wider text-sage">The Workflow</span>
             <h3 className="text-3xl font-serif text-earth-900">
-              The 4-Step Sovereign Loop
+              What actually happens
             </h3>
             <p className="text-sm text-earth-600 max-w-xl mx-auto">
-              How Lumina captures the ephemeral and structural highlights of your professional journey.
+              How Lumina listens, reflects, and keeps your private record.
             </p>
           </div>
 
@@ -551,30 +551,24 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
             <div className="space-y-4 relative z-10">
               <span className="text-xs font-mono uppercase tracking-widest text-terracotta">THE MANIFESTO</span>
               <h3 className="text-2xl md:text-3xl font-serif text-earth-900 leading-tight">
-                Aligning whatever you are building with the <span className="italic">Meaning Economy</span>
+                You don't need to be monitored. You need to be honest with yourself.
               </h3>
               <div className="space-y-4 text-xs md:text-sm text-earth-600 leading-relaxed">
                 <p>
-                  We are transitioning past the era of information overwhelm. Traditional platforms are designed for attention arbitrage, rewarding endless scrolling and generic vanity signals. 
-                </p>
-                <p>
-                  <strong>Lumina</strong> represents the return to self-sovereignty. Whether you are building a career, a startup, a business, or pursuing a degree, your genuine story is written in the daily, unrecorded efforts of your craft—the complex feedback cycles, critical fires defused, and strategic alignment secured. 
-                </p>
-                <p>
-                  This is your sovereign professional equity. Our custom zero-friction vocal capture allows you to secure this equity cleanly in a Personal Vault, isolated from public tracking, ad systems, and corporate noise.
+                  Most apps track you to make you use them more: leaderboards, guilt streaks, a mascot that looks sad when you skip a day. None of that leaves you with a truthful record of what you actually did. Lumina does the opposite. It tells you when you missed a day, it keeps a hard moment private until the same struggle comes back, and it never invents a connection it cannot support from what you actually said.
                 </p>
               </div>
 
               <div className="border-t border-earth-200 pt-6 space-y-4">
-                <h4 className="text-xs font-mono uppercase text-earth-800 tracking-wider">About Lumina Technologies</h4>
+                <h4 className="text-xs font-mono uppercase text-earth-800 tracking-wider">About Lumina</h4>
                 <p className="text-[11px] text-earth-600 leading-relaxed">
-                  Lumina was designed by a collective of high-performance human technologists. Our servers respect total privacy. We do not Sell, Rent, or Train corporate models on your personal vocal reflections. Your reflection vault is yours alone.
+                  Lumina is built by one person: Muhammad Yahya Amar, a student in Pakistan. There is no company, no team and no investors behind it.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Right Side: Clean Sovereign Entry Card */}
+          {/* Right Side: Clean Entry Card */}
           <div className="lg:col-span-6 bg-white rounded-3xl border border-earth-200 p-8 earth-shadow space-y-6 text-left relative min-h-[460px]">
             <AnimatePresence mode="wait">
               {!showGuestPrompt ? (
@@ -588,10 +582,10 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                 >
                   <div className="space-y-2">
                     <h3 className="text-xl font-display font-bold text-earth-900">
-                      Sign In to Lumina
+                      Open Lumina
                     </h3>
                     <p className="text-xs text-earth-600">
-                      Enter your email address and your name to access your private reflection vault.
+                      Enter your email address and your name to open your private record.
                     </p>
                   </div>
 
@@ -649,7 +643,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
                     <div className="flex items-center gap-2 p-2.5 bg-sage/10 border border-sage/20 rounded-xl text-sage text-xs font-mono">
                       <ShieldCheck className="w-4 h-4 text-sage flex-shrink-0" />
-                      <span>Verified private vault: 100% confidential & sovereign</span>
+                      <span>Your entries: no ads, never sold, and no other user can see them.</span>
                     </div>
 
                     <button
@@ -711,8 +705,31 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                       className="w-full py-2 bg-earth-50 hover:bg-earth-100 border border-dashed border-sage/40 hover:border-sage text-sage text-xs font-mono font-medium rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
                     >
                       <UserCheck className="w-3.5 h-3.5 text-sage" />
-                      INSTANT REVIEW ACCESS (DEMO)
+                      Continue as guest
                     </button>
+                  </div>
+
+                  {/* Age notice & Privacy Link in sign-in panel */}
+                  <div className="pt-2 text-center space-y-1.5 border-t border-earth-100">
+                    <p className="text-[11px] text-earth-500 font-mono">
+                      Lumina is for adults 18 and over.
+                    </p>
+                    <p className="text-[11px] text-earth-500 font-mono">
+                      <a
+                        href="/privacy"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (onOpenPrivacy) onOpenPrivacy();
+                          else {
+                            window.history.pushState({}, "", "/privacy");
+                            window.dispatchEvent(new PopStateEvent("popstate"));
+                          }
+                        }}
+                        className="text-terracotta hover:underline font-semibold cursor-pointer"
+                      >
+                        Privacy Policy
+                      </a>
+                    </p>
                   </div>
                 </motion.div>
               ) : (
@@ -727,10 +744,10 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                   <div className="space-y-2">
                     <h3 className="text-xl font-serif text-earth-900 flex items-center gap-2 font-bold">
                       <Sparkles className="w-5 h-5 text-sage" />
-                      Sovereign Guest Mode
+                      Guest Mode
                     </h3>
                     <p className="text-xs text-earth-600 leading-relaxed">
-                      Lumina respects your identity. Please enter your name to customize your local sandbox and professional reflection space.
+                      Lumina respects your identity. Please enter your name to customize your local sandbox and private reflection space.
                     </p>
                   </div>
 
@@ -755,14 +772,14 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
 
                     <div className="flex items-center gap-2 p-2.5 bg-sage/10 border border-sage/20 rounded-xl text-sage text-xs font-mono">
                       <ShieldCheck className="w-4 h-4 text-sage flex-shrink-0" />
-                      <span>Verified sovereign workspace (isolated environment)</span>
+                      <span>Private local workspace (isolated environment)</span>
                     </div>
 
                     <button
                       type="submit"
                       className="w-full py-2.5 bg-sage hover:bg-sage/90 text-white text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
                     >
-                      Enter Sovereign Workspace
+                      Enter Guest Workspace
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </form>
@@ -777,7 +794,7 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
                       className="text-xs text-earth-500 hover:text-sage transition-colors font-mono uppercase flex items-center justify-center gap-1.5 mx-auto"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
-                      Back to secure sign-in
+                      Back to sign-in
                     </button>
                   </div>
                 </motion.div>
@@ -786,6 +803,29 @@ export default function SecureGateway({ onAuthSuccess }: SecureGatewayProps) {
           </div>
 
         </div>
+
+        {/* Landing Page Footer */}
+        <footer className="border-t border-earth-200 pt-8 mt-16 flex flex-col sm:flex-row items-center justify-between text-xs text-earth-500 font-mono gap-4">
+          <p>© 2026 Lumina • Built by Muhammad Yahya Amar</p>
+          <div className="flex items-center gap-4">
+            <span>Adults 18+</span>
+            <span>•</span>
+            <a
+              href="/privacy"
+              onClick={(e) => {
+                e.preventDefault();
+                if (onOpenPrivacy) onOpenPrivacy();
+                else {
+                  window.history.pushState({}, "", "/privacy");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }
+              }}
+              className="text-terracotta hover:underline font-semibold cursor-pointer"
+            >
+              Privacy Policy
+            </a>
+          </div>
+        </footer>
 
       </div>
       </div>

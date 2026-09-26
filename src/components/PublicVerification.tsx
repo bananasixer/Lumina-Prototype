@@ -272,7 +272,7 @@ export default function PublicVerification({ sharedEntryId, onClose }: PublicVer
 
         <div className="bg-earth-50 px-6 py-3 border-t border-earth-200 text-center">
           <p className="text-[9px] font-mono text-earth-400 uppercase tracking-widest">
-            Attributable Sovereign Verification • No Stranger Leaderboards
+            Attributable Verification • No Stranger Leaderboards
           </p>
         </div>
       </motion.div>

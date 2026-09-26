@@ -252,7 +252,7 @@ export default function AccountabilityCircle({
               </div>
               <div className="p-4 bg-white rounded-xl border border-earth-200 space-y-2 text-left">
                 <p className="text-xs text-earth-500 font-mono uppercase">
-                  {user.displayName || "Sovereign User"}'s Check-in Streak
+                  {user.displayName || "User"}'s Check-in Streak
                 </p>
                 <p className="text-2xl font-serif text-earth-900 font-bold">
                   {streak} consecutive {streak === 1 ? "day" : "days"}

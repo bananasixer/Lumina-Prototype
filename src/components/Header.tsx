@@ -104,7 +104,7 @@ export default function Header({ user, activeTab, setActiveTab, onLogout }: Head
             }`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
-            Vault
+            Record
           </button>
 
           <button
