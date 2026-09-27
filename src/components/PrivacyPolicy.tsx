@@ -56,7 +56,7 @@ export default function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
               1. Who runs Lumina
             </h2>
             <p>
-              Lumina is built and operated by one person: Muhammad Yahya Amar, a student and solo developer in Pakistan. There is no company, no corporate team, and no venture investors behind it.
+              Lumina is built solo by a 16-year-old student in Pakistan: Muhammad Yahya Amar. There is no company, no corporate team, and no venture investors behind it.
             </p>
           </section>
 

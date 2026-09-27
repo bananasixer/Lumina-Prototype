@@ -21,8 +21,8 @@ export default function LuminaStory() {
     },
     {
       icon: <Bookmark className="w-5 h-5 text-earth-700" />,
-      title: "4. Proof (The Value Ledger)",
-      description: "Structured summaries are compiled chronologically. Leverage this high-trust personal repository to secure raises, justify reviews, or build resumes."
+      title: "4. Pattern (Your Honest Record)",
+      description: "Structured summaries are compiled chronologically. An honest, private record for young people building something on their own with nobody to talk to."
     }
   ];
 
@@ -145,7 +145,7 @@ export default function LuminaStory() {
           <span className="text-xs font-mono uppercase tracking-wider text-sage">OUR VISION</span>
           <h3 className="text-2xl font-serif text-earth-900">About Lumina</h3>
           <p className="text-earth-600 text-sm leading-relaxed">
-            Lumina is built by one person: Muhammad Yahya Amar, a student in Pakistan. There is no company, no team and no investors behind it. We believe software should respect human psychology rather than commodify attention through psychological hacks.
+            Lumina is built solo by a 16-year-old student in Pakistan: Muhammad Yahya Amar. There is no company, no team and no investors behind it. We believe software should respect human psychology rather than commodify attention through psychological hacks.
           </p>
           <p className="text-earth-500 text-xs">
             We operate out of strict privacy protocols, and our entire pipeline is designed around user privacy. We do not sell, rent, or leverage your reflections for general model training.
@@ -153,13 +153,13 @@ export default function LuminaStory() {
         </div>
         <div className="md:col-span-5 bg-white p-6 rounded-2xl border border-earth-200 space-y-4 earth-shadow">
           <h4 className="text-xs font-mono text-sage uppercase tracking-widest flex items-center gap-2 font-semibold">
-            <TrendingUp className="w-4 h-4" /> Cognitive Resilience
+            <TrendingUp className="w-4 h-4" /> Building Alone
           </h4>
           <blockquote className="text-earth-700 text-xs italic border-l-2 border-sage pl-4 py-1.5 leading-relaxed">
-            "Your professional value isn't forged in annual review meetings. It is built in the quiet daily adjustments, the fires handled with poise, and the steady resilience of consistent craft."
+            "When you're building something on your own with nobody to talk to, you don't need artificial cheerleading or corporate reviews. You need an honest, quiet record of what you actually did."
           </blockquote>
           <p className="text-[10px] text-earth-400 font-mono">
-            — Dr. Sarah Chen, Advisor on Cognitive Resilience
+            — Built for young people building alone
           </p>
         </div>
       </div>

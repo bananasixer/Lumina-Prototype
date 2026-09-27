@@ -345,7 +345,7 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
             </h2>
             {/* Introductory text */}
             <p className="text-sm md:text-base text-earth-600 font-normal leading-relaxed max-w-xl">
-              Lumina is a voice-first private record for people building something on their own — a business, a skill, or just trying to earn independently. Speak for as long as you want. Lumina replies to something specific you actually said, and keeps an honest record of what you did.
+              Lumina is a voice-first private record for young people building something on their own with nobody to talk to — a business, a project, a skill, or just trying to earn independently. Speak for as long as you want. Lumina replies to something specific you actually said, and keeps an honest record of what you did.
             </p>
 
             {/* Feature Cards */}
@@ -562,7 +562,7 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
               <div className="border-t border-earth-200 pt-6 space-y-4">
                 <h4 className="text-xs font-mono uppercase text-earth-800 tracking-wider">About Lumina</h4>
                 <p className="text-[11px] text-earth-600 leading-relaxed">
-                  Lumina is built by one person: Muhammad Yahya Amar, a student in Pakistan. There is no company, no team and no investors behind it.
+                  Lumina is built solo by a 16-year-old student in Pakistan: Muhammad Yahya Amar. There is no company, no team and no investors behind it.
                 </p>
               </div>
             </div>
@@ -806,7 +806,7 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
 
         {/* Landing Page Footer */}
         <footer className="border-t border-earth-200 pt-8 mt-16 flex flex-col sm:flex-row items-center justify-between text-xs text-earth-500 font-mono gap-4">
-          <p>© 2026 Lumina • Built by Muhammad Yahya Amar</p>
+          <p>© 2026 Lumina • Built solo by a 16-year-old student in Pakistan (Muhammad Yahya Amar)</p>
           <div className="flex items-center gap-4">
             <span>Adults 18+</span>
             <span>•</span>
