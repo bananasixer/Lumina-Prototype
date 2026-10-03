@@ -7,9 +7,10 @@ interface DidIWinCardProps {
   entries: WinEntry[];
   userName?: string;
   onClose?: () => void;
+  onNavigateRecord?: () => void;
 }
 
-export default function DidIWinCard({ entries, userName }: DidIWinCardProps) {
+export default function DidIWinCard({ entries, userName, onNavigateRecord }: DidIWinCardProps) {
   // Automatically choose milestone based on user's logged entries
   const getAutoMilestone = (): "3-day" | "7-day" | "14-day" | "30-day" => {
     const uniqueDays = new Set(entries.map(e => e.date).filter(Boolean)).size;
@@ -153,9 +154,21 @@ export default function DidIWinCard({ entries, userName }: DidIWinCardProps) {
             </h5>
           </div>
           {cardData.wins.length === 0 ? (
-            <p className="text-xs text-earth-500 italic p-4 bg-earth-50 rounded-xl">
-              No wins logged yet in this {cardData.totalDaysInPeriod}-day window. Record a check-in to see your wins!
-            </p>
+            <div className="p-4 bg-earth-50 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left border border-earth-100">
+              <p className="text-xs text-earth-500 italic">
+                No wins logged yet in this {cardData.totalDaysInPeriod}-day window. Record a check-in to see your wins!
+              </p>
+              {onNavigateRecord && (
+                <button
+                  type="button"
+                  onClick={onNavigateRecord}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sage text-white rounded-lg text-xs font-mono font-medium hover:bg-sage/90 cursor-pointer shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Record Win Now (&lt;4s)
+                </button>
+              )}
+            </div>
           ) : (
             <div className="space-y-2">
               {cardData.wins.map((win, idx) => (

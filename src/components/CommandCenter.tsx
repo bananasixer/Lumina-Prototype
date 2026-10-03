@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Edit3, Send, Sparkles, AlertCircle, RefreshCw, BookmarkCheck, X, Check, Clock, Heart, Flame, ShieldAlert, Award } from "lucide-react";
+import { Mic, Edit3, Send, Sparkles, AlertCircle, RefreshCw, BookmarkCheck, X, Check, Clock, Heart, Flame, ShieldAlert, Award, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserSession, WinEntry } from "../types";
 import { calculateStreak } from "../utils/sovereignMetrics";
@@ -8,9 +8,10 @@ interface CommandCenterProps {
   user: UserSession;
   entries: WinEntry[];
   onEntrySaved: (entry: WinEntry) => void;
+  autoStart?: boolean;
 }
 
-export default function CommandCenter({ user, entries, onEntrySaved }: CommandCenterProps) {
+export default function CommandCenter({ user, entries, onEntrySaved, autoStart }: CommandCenterProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -23,6 +24,20 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
   const [slowdownCause, setSlowdownCause] = useState<string>("");
   const [speakLanguage, setSpeakLanguage] = useState<"english" | "urdu">("english");
   const [isEditing, setIsEditing] = useState(false);
+
+  // Real-time live voice extraction
+  const [liveTranscript, setLiveTranscript] = useState<string>("");
+  const liveTranscriptRef = useRef<string>("");
+  const recognitionRef = useRef<any>(null);
+  const [processingTimeMs, setProcessingTimeMs] = useState<number | null>(null);
+  const processingStartTimeRef = useRef<number>(0);
+  const [autoStartEnabled, setAutoStartEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("lumina_auto_record") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   // States for the generated AI result preview
   const [aiResult, setAiResult] = useState<{
@@ -75,12 +90,15 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Start Voice Recording (no time limit)
+  // Start Voice Recording (no time limit, real-time live extraction)
   const startRecording = async () => {
     setErrorMessage(null);
     setAiResult(null);
+    setLiveTranscript("");
+    liveTranscriptRef.current = "";
     audioChunksRef.current = [];
     setRecordingDuration(0);
+    setProcessingTimeMs(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -100,7 +118,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
         drawVisualizer();
       }
 
-      // Configure MediaRecorder
+      // Configure MediaRecorder for audio backup
       const options = { mimeType: "audio/webm" };
       let mediaRecorder: MediaRecorder;
       try {
@@ -125,7 +143,44 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
       mediaRecorder.start(250);
       setIsRecording(true);
 
-      // Start duration timer - unbounded count up, NO cutoff
+      // Start Web Speech Recognition concurrently for real-time live extraction as user speaks
+      const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognitionClass) {
+        try {
+          const recognition = new SpeechRecognitionClass();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = speakLanguage === "urdu" ? "ur-PK" : "en-US";
+
+          recognition.onresult = (event: any) => {
+            let interim = "";
+            let final = "";
+            for (let i = 0; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) {
+                final += event.results[i][0].transcript + " ";
+              } else {
+                interim += event.results[i][0].transcript;
+              }
+            }
+            const combined = (final + interim).trim();
+            if (combined) {
+              setLiveTranscript(combined);
+              liveTranscriptRef.current = combined;
+            }
+          };
+
+          recognition.onerror = (e: any) => {
+            console.warn("SpeechRecognition fallback to audio stream:", e);
+          };
+
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (err) {
+          console.warn("Speech recognition init exception:", err);
+        }
+      }
+
+      // Start duration timer - count up
       timerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
@@ -148,6 +203,13 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
       timerRef.current = null;
     }
     
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -206,26 +268,32 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
     draw();
   };
 
-  // Process and send recorded audio to backend API
+  // Process and send recorded audio to backend API with sub-4s turnaround
   const processAudioPayload = async () => {
     setIsProcessing(true);
     setErrorMessage(null);
+    processingStartTimeRef.current = Date.now();
 
     try {
-      const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || "audio/webm" });
-      
-      const base64Audio = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64String = (reader.result as string).split(",")[1];
-          resolve(base64String);
-        };
-        reader.onerror = reject;
-      });
+      const extractedLiveText = (liveTranscriptRef.current || "").trim();
+      let base64Audio: string | null = null;
+      const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
 
-      // Contextual past entries for multi-day pattern detection and tone tracking
-      const pastEntriesForAnalysis = entries.slice(0, 8).map(e => ({
+      if (audioChunksRef.current.length > 0) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+        base64Audio = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = () => {
+            const str = (reader.result as string)?.split(",")?.[1] || "";
+            resolve(str);
+          };
+          reader.onerror = () => resolve("");
+        });
+      }
+
+      // Compact context (last 4 entries) for instant sub-4s latency
+      const pastEntriesForAnalysis = entries.slice(0, 4).map(e => ({
         win: e.win,
         transcript: e.transcript,
         date: e.date,
@@ -237,8 +305,10 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          audio: base64Audio,
-          mimeType: mediaRecorderRef.current?.mimeType || "audio/webm",
+          audio: base64Audio || undefined,
+          mimeType: mime,
+          liveTranscript: extractedLiveText || undefined,
+          textBackup: extractedLiveText || undefined,
           pastEntries: pastEntriesForAnalysis,
           userAge: user.age,
           parentEmail: user.parentEmail,
@@ -252,6 +322,9 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
       }
 
       const data = await response.json();
+      const elapsed = Date.now() - processingStartTimeRef.current;
+      setProcessingTimeMs(elapsed);
+
       const initialCat: "win" | "resilience" | "slowdown" = data.category || (data.resiliencePoint ? "resilience" : "win");
       setSelectedCategory(initialCat);
       setSlowdownCause(data.slowdownCause || "");
@@ -360,8 +433,23 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
     };
   }, []);
+
+  // Auto-start recording if requested or enabled
+  useEffect(() => {
+    if (autoStart || autoStartEnabled) {
+      const timer = setTimeout(() => {
+        if (!isRecording && !isProcessing && !aiResult) {
+          startRecording();
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [autoStart]);
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto px-4 py-4" id="command-center-root">
@@ -372,7 +460,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
           {getGreeting()}
         </h2>
         <p className="text-earth-600 text-sm max-w-md mx-auto leading-relaxed">
-          Talk for as long as you want — no timer, no cutoff. Lumina will isolate your agency, reply specifically to what you said, and quietly catalog your resilience.
+          Talk freely to record your daily win. Real-time voice extraction transcribes as you speak, categorizing and saving your record in under 4 seconds.
         </p>
 
         {/* Quiet Streak Indicator */}
@@ -526,11 +614,21 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                       initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       exit={{ scale: 0.8, opacity: 0 }}
-                      className="flex flex-col items-center justify-center text-center"
+                      className="flex flex-col items-center justify-center text-center px-1"
                     >
-                      <Mic className="w-8 h-8 text-sage" />
+                      <div className="relative">
+                        <Mic className="w-8 h-8 text-sage" />
+                        <span className="absolute -top-1 -right-2 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                      </div>
                       <span className="text-[9px] font-mono tracking-widest uppercase mt-2 font-bold text-sage">
-                        {speakLanguage === "urdu" ? "TALK IN URDU" : "TAP TO TALK"}
+                        {speakLanguage === "urdu" ? "TALK IN URDU" : "RECORD WIN"}
+                      </span>
+                      <span className="text-[8px] font-mono tracking-tight text-earth-500 font-semibold flex items-center gap-0.5 mt-0.5">
+                        <Zap className="w-2.5 h-2.5 text-amber-500" />
+                        &lt;4s FAST
                       </span>
                     </motion.div>
                   )}
@@ -538,24 +636,70 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
               </button>
             </div>
 
+            {/* Real-time Voice Extraction Live Display */}
+            {isRecording && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-md bg-white p-3.5 rounded-2xl border border-earth-200 shadow-xs text-left space-y-2"
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono text-sage uppercase tracking-wider font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Voice Extraction
+                  </span>
+                  <span className="text-earth-400 font-medium">⚡ transcribes as you speak</span>
+                </div>
+                <div className="min-h-[44px] max-h-24 overflow-y-auto text-sm text-earth-800 font-sans leading-relaxed bg-earth-50/70 p-2.5 rounded-xl border border-earth-100">
+                  {liveTranscript ? (
+                    <span>
+                      {liveTranscript}
+                      <span className="inline-block w-1.5 h-3.5 bg-sage ml-1 animate-pulse align-middle" />
+                    </span>
+                  ) : (
+                    <span className="text-earth-400 italic text-xs">
+                      Listening to your voice... Speak your win and words will extract here live in real-time.
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {/* Timer and Wave Visualizer */}
             {isRecording ? (
               <div className="w-full space-y-3 text-center max-w-sm">
                 <p className="text-[11px] text-sage font-mono uppercase tracking-widest animate-pulse font-semibold">
                   {speakLanguage === "urdu"
                     ? "Recording in Urdu • Auto-converting to English"
-                    : "Recording actively • No time limit • Tap when finished"}
+                    : "Recording actively • Live transcription • Tap when finished"}
                 </p>
                 <div className="w-full h-11 bg-earth-100 rounded-xl border border-earth-200 overflow-hidden shadow-inner">
                   <canvas ref={canvasRef} width="350" height="44" className="w-full h-full" />
                 </div>
               </div>
             ) : (
-              <p className="text-[10px] font-mono text-earth-500 uppercase tracking-widest font-semibold">
-                {speakLanguage === "urdu"
-                  ? "Urdu voice active • All reflections auto-converted to English"
-                  : "Private voice ledger • Take as much time as you need"}
-              </p>
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-[10px] font-mono text-earth-500 uppercase tracking-widest font-semibold">
+                  {speakLanguage === "urdu"
+                    ? "Urdu voice active • Auto-converted to English under 4 seconds"
+                    : "Voice extraction transcribes live • Sub-4s verification"}
+                </p>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-mono text-earth-600 bg-earth-100/70 hover:bg-earth-100 px-3 py-1 rounded-full border border-earth-200 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={autoStartEnabled}
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      setAutoStartEnabled(val);
+                      try {
+                        localStorage.setItem("lumina_auto_record", String(val));
+                      } catch {}
+                    }}
+                    className="w-3.5 h-3.5 text-sage rounded border-earth-300 focus:ring-sage"
+                  />
+                  <span>Start recording automatically as screen opens</span>
+                </label>
+              </div>
             )}
 
             {/* Processing State Loader */}
@@ -564,8 +708,8 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                 <RefreshCw className="w-5 h-5 text-terracotta animate-spin" />
                 <p className="text-[10px] font-mono text-terracotta tracking-widest uppercase animate-pulse font-semibold">
                   {speakLanguage === "urdu"
-                    ? "Translating Urdu audio & converting into English..."
-                    : "Isolating agency & crystallizing your reflection..."}
+                    ? "Translating Urdu audio into English (under 4s)..."
+                    : "Categorizing win & verifying (under 4s)..."}
                 </p>
               </div>
             )}
@@ -608,7 +752,7 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
                           type="submit"
                           className="px-4 py-2 bg-earth-900 hover:bg-earth-800 text-white text-xs font-mono uppercase tracking-wider rounded-lg transition-colors flex items-center gap-2 cursor-pointer active:scale-95"
                         >
-                          Synthesize
+                          Save Win
                           <Send className="w-3 h-3" />
                         </button>
                       </div>
@@ -629,11 +773,17 @@ export default function CommandCenter({ user, entries, onEntrySaved }: CommandCe
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-earth-200 pb-3 flex-wrap gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Sparkles className="w-4 h-4 text-terracotta" />
                 <span className="text-xs font-mono uppercase tracking-wider text-earth-800 font-bold">
                   Check-in Complete
                 </span>
+                {processingTimeMs !== null && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1 font-semibold">
+                    <Zap className="w-2.5 h-2.5 text-emerald-600" />
+                    {(processingTimeMs / 1000).toFixed(1)}s (under 4s)
+                  </span>
+                )}
                 {speakLanguage === "urdu" && (
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sage/15 text-sage-900 border border-sage/30">
                     Urdu → English

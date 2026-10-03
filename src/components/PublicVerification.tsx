@@ -35,7 +35,7 @@ export default function PublicVerification({ sharedEntryId, onClose }: PublicVer
       // Fallback demo entry
       found = {
         id: sharedEntryId,
-        userId: "sovereign-user",
+        userId: "user-record",
         date: new Date().toISOString().split("T")[0],
         timestamp: Date.now(),
         win: "Spearheaded modular architectural transition for core services, eliminating latency bottlenecks.",

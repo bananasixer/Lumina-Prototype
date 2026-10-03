@@ -473,7 +473,11 @@ export default function App() {
                     exit={{ opacity: 0, y: -12 }}
                     transition={{ duration: 0.25 }}
                   >
-                    <DidIWinCard entries={entries} userName={user.displayName || "User"} />
+                    <DidIWinCard 
+                      entries={entries} 
+                      userName={user.displayName || "User"} 
+                      onNavigateRecord={() => setActiveTab("command")}
+                    />
                   </motion.div>
                 )}
 

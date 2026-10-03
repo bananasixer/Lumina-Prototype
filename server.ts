@@ -27,7 +27,14 @@ const getGeminiClient = () => {
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY environment variable is required");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      }
+    }
+  });
 };
 
 // API route: Parental Notice Dispatch
@@ -69,10 +76,12 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
 // API route: Analyze audio or text check-in
 app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { audio, mimeType, textBackup, pastEntries, userAge, parentEmail, languageMode } = req.body;
+    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail, languageMode } = req.body;
 
-    if (!audio && !textBackup) {
-      res.status(400).json({ error: "Either audio or textBackup must be provided" });
+    const effectiveText = (textBackup || liveTranscript || "").trim();
+
+    if (!audio && !effectiveText) {
+      res.status(400).json({ error: "Either audio or text reflection must be provided" });
       return;
     }
 
@@ -87,7 +96,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
 
       LANGUAGE & TRANSLATION DIRECTIVE:
       - All output fields (including transcript, win, feedback, slowdownCause, and tags) MUST be returned in clear, everyday English.
-      ${isUrduMode ? `- SPEAK IN URDU MODE ACTIVE: The user is speaking (or writing) in Urdu (اردو), colloquial Urdu, or mixed Roman Urdu. Listen attentively to their Urdu audio. Accurately translate their spoken thoughts into clear, fluent, natural English for the "transcript" field. The saved transcript MUST be in plain English so the entire user journal and ledger remain consistently in English.` : `- If the user happens to speak in Urdu or any non-English language, automatically translate what they said into clear, fluent English for the "transcript" field and maintain all output in English.`}
+      ${isUrduMode ? `- SPEAK IN URDU MODE ACTIVE: The user is speaking (or writing) in Urdu (اردو), colloquial Urdu, or mixed Roman Urdu. Listen attentively or read their words. Accurately translate their spoken thoughts into clear, fluent, natural English for the "transcript" field. The saved transcript MUST be in plain English so the entire user journal and ledger remain consistently in English.` : `- If the user happens to speak in Urdu or any non-English language, automatically translate what they said into clear, fluent English for the "transcript" field and maintain all output in English.`}
 
       CRITICAL LANGUAGE RULE (ANTI-COMPLEXITY):
       - NEVER use big, fancy, academic, robotic, or AI words.
@@ -111,10 +120,6 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
 
       WHAT CAUSED YOU TO FALL BACK (FOR SLOWDOWN / PROCRASTINATION):
       If the category is "slowdown" (or whenever the user fell back or procrastinated), clearly state in 1 simple sentence what triggered or caused them to fall back.
-      Examples:
-      - "Feeling overwhelmed by the task made you put off getting started."
-      - "Being tired after work led to scrolling on your phone instead of exercising."
-      - "Uncertainty about the first step caused you to delay the project."
       If there was no procrastination or falling back, set slowdownCause to null.
 
       MAIN TAKEAWAY ("win"):
@@ -152,8 +157,9 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     `;
 
     if (pastEntries && Array.isArray(pastEntries) && pastEntries.length > 0) {
+      // Keep only recent 4 entries to keep payload compact and latency under 4s
       contents.push({
-        text: `PAST HISTORICAL ENTRIES FOR CONTEXT:\n${JSON.stringify(pastEntries)}`
+        text: `PAST HISTORICAL ENTRIES FOR CONTEXT:\n${JSON.stringify(pastEntries.slice(0, 4))}`
       });
     }
 
@@ -163,7 +169,17 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
       });
     }
 
-    if (audio) {
+    // High performance routing: if real-time transcript is already available,
+    // analyze text directly for sub-2-second turnaround time
+    if (effectiveText) {
+      contents.push({
+        text: systemPrompt + (
+          isUrduMode
+            ? `\nThe user spoke/wrote this reflection in Urdu. Auto-translate it into fluent everyday English for the transcript and provide all insights in English:\n"${effectiveText}"`
+            : `\nAnalyze the following spoken/typed reflection:\n"${effectiveText}"`
+        )
+      });
+    } else {
       contents.push({
         inlineData: {
           data: audio,
@@ -177,20 +193,15 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
             : "\nAnalyze and accurately transcribe the user's voice check-in."
         )
       });
-    } else {
-      contents.push({
-        text: systemPrompt + (
-          isUrduMode
-            ? `\nThe user provided this reflection in Urdu. Auto-translate it into fluent everyday English for the transcript and provide all insights in English:\n"${textBackup}"`
-            : `\nAnalyze the following typed text reflection:\n"${textBackup}"`
-        )
-      });
     }
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: contents,
       config: {
+        thinkingConfig: {
+          thinkingBudget: 0
+        },
         responseMimeType: "application/json",
         responseSchema: {
           type: "OBJECT",
