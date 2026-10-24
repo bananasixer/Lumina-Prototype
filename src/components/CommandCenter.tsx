@@ -268,6 +268,88 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
     draw();
   };
 
+  // Bulletproof API request with safe JSON parsing and automatic retry for proxy/warmup glitches
+  const requestAnalysis = async (payload: any): Promise<any> => {
+    const maxAttempts = 2;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        const response = await fetch("/api/analyze-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const rawText = await response.text();
+        let jsonResult: any = null;
+
+        if (rawText && rawText.trim()) {
+          try {
+            jsonResult = JSON.parse(rawText);
+          } catch {
+            const match = rawText.match(/\{[\s\S]*\}/);
+            if (match) {
+              try {
+                jsonResult = JSON.parse(match[0]);
+              } catch {}
+            }
+          }
+        }
+
+        if (!response.ok) {
+          if (jsonResult && jsonResult.error) {
+            throw new Error(jsonResult.error);
+          }
+          if (
+            response.status === 502 || 
+            response.status === 503 || 
+            response.status === 504 || 
+            rawText.includes("The page c") || 
+            rawText.includes("Starting Server") ||
+            rawText.includes("warmup")
+          ) {
+            throw new Error("The service is momentarily warming up. Retrying...");
+          }
+          if (response.status === 413) {
+            throw new Error("Audio recording was too long. Please record a shorter reflection or use text.");
+          }
+          throw new Error(`Service temporarily unavailable (status ${response.status}).`);
+        }
+
+        if (!jsonResult) {
+          throw new Error("Server returned an unreadable response format.");
+        }
+
+        return jsonResult;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Lumina] Analysis attempt ${attempt} failed:`, err.message);
+
+        // Don't retry validation or oversized errors
+        if (err.message && (err.message.includes("reflection must be provided") || err.message.includes("too long"))) {
+          throw err;
+        }
+      }
+    }
+
+    let cleanMessage = lastError?.message || "Could not analyze reflection. Please try again.";
+    if (
+      cleanMessage.includes("Unexpected token") || 
+      cleanMessage.includes("The page c") || 
+      cleanMessage.includes("is not valid JSON") ||
+      cleanMessage.includes("warmup")
+    ) {
+      cleanMessage = "The server was briefly reconnecting. Please tap again to save your check-in.";
+    }
+
+    throw new Error(cleanMessage);
+  };
+
   // Process and send recorded audio to backend API with sub-4s turnaround
   const processAudioPayload = async () => {
     setIsProcessing(true);
@@ -279,17 +361,23 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
       let base64Audio: string | null = null;
       const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
 
-      if (audioChunksRef.current.length > 0) {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
-        base64Audio = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = () => {
-            const str = (reader.result as string)?.split(",")?.[1] || "";
-            resolve(str);
-          };
-          reader.onerror = () => resolve("");
-        });
+      // If live transcription already captured the text, avoid uploading heavy audio binaries over the network
+      if (!extractedLiveText || extractedLiveText.length < 4) {
+        if (audioChunksRef.current.length > 0) {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+          if (audioBlob.size > 15 * 1024 * 1024) {
+            throw new Error("Audio recording is too long. Please keep your reflection under 2 minutes or use the text option.");
+          }
+          base64Audio = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+              const str = (reader.result as string)?.split(",")?.[1] || "";
+              resolve(str);
+            };
+            reader.onerror = () => resolve("");
+          });
+        }
       }
 
       // Compact context (last 4 entries) for instant sub-4s latency
@@ -301,27 +389,17 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
         status: e.status
       }));
 
-      const response = await fetch("/api/analyze-audio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audio: base64Audio || undefined,
-          mimeType: mime,
-          liveTranscript: extractedLiveText || undefined,
-          textBackup: extractedLiveText || undefined,
-          pastEntries: pastEntriesForAnalysis,
-          userAge: user.age,
-          parentEmail: user.parentEmail,
-          languageMode: speakLanguage
-        })
+      const data = await requestAnalysis({
+        audio: base64Audio || undefined,
+        mimeType: mime,
+        liveTranscript: extractedLiveText || undefined,
+        textBackup: extractedLiveText || undefined,
+        pastEntries: pastEntriesForAnalysis,
+        userAge: user.age,
+        parentEmail: user.parentEmail,
+        languageMode: speakLanguage
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Analysis request failed");
-      }
-
-      const data = await response.json();
       const elapsed = Date.now() - processingStartTimeRef.current;
       setProcessingTimeMs(elapsed);
 
@@ -333,7 +411,11 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
 
     } catch (err: any) {
       console.error("Audio processing error:", err);
-      setErrorMessage(err.message || "Could not analyze your reflection. Please try again or type instead.");
+      let msg = err.message || "Could not analyze your reflection. Please try again or type instead.";
+      if (msg.includes("Unexpected token") || msg.includes("The page c") || msg.includes("is not valid JSON")) {
+        msg = "The server was briefly reconnecting. Please tap again to save your check-in.";
+      }
+      setErrorMessage(msg);
     } finally {
       setIsProcessing(false);
     }
@@ -349,7 +431,7 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
     setAiResult(null);
 
     try {
-      const pastEntriesForAnalysis = entries.slice(0, 8).map(e => ({
+      const pastEntriesForAnalysis = entries.slice(0, 4).map(e => ({
         win: e.win,
         transcript: e.transcript,
         date: e.date,
@@ -357,24 +439,14 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
         status: e.status
       }));
 
-      const response = await fetch("/api/analyze-audio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          textBackup: typedText,
-          pastEntries: pastEntriesForAnalysis,
-          userAge: user.age,
-          parentEmail: user.parentEmail,
-          languageMode: speakLanguage
-        })
+      const data = await requestAnalysis({
+        textBackup: typedText.trim(),
+        pastEntries: pastEntriesForAnalysis,
+        userAge: user.age,
+        parentEmail: user.parentEmail,
+        languageMode: speakLanguage
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Analysis request failed");
-      }
-
-      const data = await response.json();
       const initialCat: "win" | "resilience" | "slowdown" = data.category || (data.resiliencePoint ? "resilience" : "win");
       setSelectedCategory(initialCat);
       setSlowdownCause(data.slowdownCause || "");
@@ -383,7 +455,11 @@ export default function CommandCenter({ user, entries, onEntrySaved, autoStart }
       setTypedText("");
     } catch (err: any) {
       console.error("Text processing error:", err);
-      setErrorMessage(err.message || "Failed to process text entry.");
+      let msg = err.message || "Failed to process text entry.";
+      if (msg.includes("Unexpected token") || msg.includes("The page c") || msg.includes("is not valid JSON")) {
+        msg = "The server was briefly reconnecting. Please tap to submit again.";
+      }
+      setErrorMessage(msg);
     } finally {
       setIsProcessing(false);
     }

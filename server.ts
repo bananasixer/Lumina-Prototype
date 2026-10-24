@@ -237,7 +237,23 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
       throw new Error("Empty response from AI engine");
     }
 
-    const parsedResult = JSON.parse(responseText);
+    let parsedResult: any;
+    try {
+      const cleaned = responseText
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      parsedResult = JSON.parse(cleaned);
+    } catch (parseError) {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsedResult = JSON.parse(match[0]);
+      } else {
+        console.error("Failed to parse Gemini response:", responseText);
+        throw new Error("Could not parse reflection data from AI engine");
+      }
+    }
 
     // If explicit crisis triggered and user is under 18 with a parent email, record notice
     if (parsedResult.isCrisis && (userAge < 18 || parsedResult.parentAlertTriggered) && parentEmail) {
@@ -250,9 +266,11 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
       console.log(`[Lumina Crisis Parental Notification] Alert dispatched to: ${parentEmail}`);
     }
 
+    res.setHeader("Content-Type", "application/json");
     res.json(parsedResult);
   } catch (error: any) {
     console.error("Error in /api/analyze-audio:", error);
+    res.setHeader("Content-Type", "application/json");
     res.status(500).json({
       error: error.message || "An error occurred while processing the check-in"
     });
