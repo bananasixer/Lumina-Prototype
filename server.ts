@@ -9,7 +9,7 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Enable large JSON payloads for base64 audio
+// Enable large JSON payloads for base64 audio recordings & uploads
 app.use(express.json({ limit: "50mb" }));
 
 // In-memory log of parental notices (for audit and verification)
@@ -37,6 +37,23 @@ const getGeminiClient = () => {
   });
 };
 
+const parseGeminiJson = (responseText: string) => {
+  const cleaned = responseText
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = responseText.match(/\{[\s\S]*\}/);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    throw new Error("Could not parse structured response from engine");
+  }
+};
+
 // API route: Parental Notice Dispatch
 app.post("/api/parental-notice", (req: express.Request, res: express.Response) => {
   const { parentEmail, userEmail, type, age } = req.body;
@@ -49,9 +66,9 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
   let message = "";
 
   if (type === "crisis_alert") {
-    message = `Important Safety Notice from Lumina: An explicit distress or safety crisis signal was detected during a reflection session for an account registered by your dependent (${userEmail || "teen user"}). We have provided regional crisis resources (including 988 and Crisis Text Line 741741) and gently paused the session. Please check in with them directly.`;
+    message = `Important Safety Notice from Lumina: An explicit distress or safety crisis signal was detected during a reflection session for an account registered by your dependent (${userEmail || "user"}). Regional crisis resources (including 988 and Crisis Text Line 741741) have been displayed.`;
   } else {
-    message = `Parent / Guardian Information Notice: A teen aged ${age || "16-17"} (${userEmail || "user"}) has created a private account on Lumina, a personal voice reflection and growth ledger. Lumina does not share advertising, does not sell data, and never shares their private audio or journal entries with anyone. No account or login is required on your part. If an explicit safety crisis is ever signaled during a session, you will be notified immediately alongside crisis resource support.`;
+    message = `Parent / Guardian Information Notice: A user aged ${age || "16-17"} (${userEmail || "user"}) has created a private account on Lumina. Lumina does not share advertising, does not sell data, and never shares private audio or journal entries with anyone.`;
   }
 
   parentalNoticeLogs.push({
@@ -62,8 +79,7 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
     message
   });
 
-  console.log(`[Lumina Parent Notice Dispatch] [${type}] To: ${parentEmail}`, message);
-
+  res.setHeader("Content-Type", "application/json");
   res.json({
     status: "dispatched",
     parentEmail,
@@ -73,113 +89,79 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
   });
 });
 
-// API route: Analyze audio or text check-in
+// API route: Automatic 95+ Language Audio & Text Capture + Analysis
 app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail, languageMode } = req.body;
+    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail } = req.body;
 
     const effectiveText = (textBackup || liveTranscript || "").trim();
 
     if (!audio && !effectiveText) {
+      res.setHeader("Content-Type", "application/json");
       res.status(400).json({ error: "Either audio or text reflection must be provided" });
       return;
     }
 
     const ai = getGeminiClient();
-    let contents: any[] = [];
-
-    const isUrduMode = languageMode === "urdu";
+    const contents: any[] = [];
 
     const systemPrompt = `
-      You are a warm, humble, and practical assistant for a daily check-in app.
-      Your task is to transcribe what the user said, and summarize it in everyday, crystal-clear, simple English.
+      You are the automatic multilingual voice transcription and reflection engine for Lumina.
+      
+      AUTOMATIC 95+ LANGUAGE DETECTION & CODE-SWITCHING DIRECTIVE:
+      - Automatically detect the spoken or written language(s) across 95+ languages (including English, Urdu, Arabic, Spanish, French, Mandarin Chinese, Hindi, German, Japanese, Korean, Portuguese, Turkish, Punjabi, Bengali, Russian, Indonesian, etc.) and natural mid-sentence code-switching (e.g., Urdu + English, Spanish + English, Arabic + French).
+      - Set "detectedLanguage" to a crisp human-readable label (e.g. "English", "Urdu", "Urdu · English", "Arabic", "Spanish", "Mandarin", "Japanese", "Hindi · English").
+      - Transcribe accurately in the "transcript" field: preserve the speaker's exact words and meaning faithfully. If spoken in a non-English language or code-switched mix, transcribe naturally in its native or clean readable form without dropping any detail.
+      - Write "win", "feedback", "slowdownCause", and "tags" in clear, everyday English so the user's progress record stays unified and easy to scan.
 
-      LANGUAGE & TRANSLATION DIRECTIVE:
-      - All output fields (including transcript, win, feedback, slowdownCause, and tags) MUST be returned in clear, everyday English.
-      ${isUrduMode ? `- SPEAK IN URDU MODE ACTIVE: The user is speaking (or writing) in Urdu (اردو), colloquial Urdu, or mixed Roman Urdu. Listen attentively or read their words. Accurately translate their spoken thoughts into clear, fluent, natural English for the "transcript" field. The saved transcript MUST be in plain English so the entire user journal and ledger remain consistently in English.` : `- If the user happens to speak in Urdu or any non-English language, automatically translate what they said into clear, fluent English for the "transcript" field and maintain all output in English.`}
-
-      CRITICAL LANGUAGE RULE (ANTI-COMPLEXITY):
-      - NEVER use big, fancy, academic, robotic, or AI words.
-      - Avoid words like "crystallize", "agency", "sovereign", "defused", "locus", "epistemic", "heuristic", "synthesize", "friction point", "void".
-      - Speak in plain, kind, easy words that an exhausted person can instantly understand without thinking.
+      CRITICAL PLAIN-LANGUAGE RULE:
+      - NEVER use academic, robotic, or buzzword vocabulary.
+      - Strictly avoid words like "crystallize", "agency", "sovereign", "defused", "locus", "epistemic", "heuristic", "synthesize", "companion", "friction point", "void".
+      - Write in plain, direct, grounded language that someone building alone can read immediately.
 
       THREE CLEAR CATEGORIES:
-      You MUST classify the check-in into ONE of these 3 clear categories:
-      1. "win" (Default if positive or accomplished):
-         The user accomplished something, finished a task, made progress, exercised, completed work, or had a good moment.
-         IMPORTANT: If the user describes something they worked on or accomplished, ALWAYS classify it as "win". Do NOT mark normal achievements as resilience!
+      Classify the entry into ONE of these 3 categories:
+      1. "win" (Default if accomplished or positive progress):
+         The user shipped something, completed work, practiced a skill, fixed an issue, or hit a milestone.
          Set category="win", isWin=true, resiliencePoint=false.
-
       2. "resilience":
-         The user faced a hard challenge, distress, emotional stress, or difficult obstacle, but pushed through it or handled it.
+         The user pushed through real difficulty, stress, rejection, or fatigue and stayed steady.
          Set category="resilience", isWin=false, resiliencePoint=true.
-
       3. "slowdown":
-         The user procrastinated, got distracted, put off what they needed to do, felt unmotivated, or fell back on their goals.
+         The user procrastinated, got distracted, lost momentum, or stalled on goals.
          Set category="slowdown", isWin=false, resiliencePoint=false.
 
-      WHAT CAUSED YOU TO FALL BACK (FOR SLOWDOWN / PROCRASTINATION):
-      If the category is "slowdown" (or whenever the user fell back or procrastinated), clearly state in 1 simple sentence what triggered or caused them to fall back.
-      If there was no procrastination or falling back, set slowdownCause to null.
+      SLOWDOWN CAUSE:
+      - If category is "slowdown" (or procrastination is described), state in 1 plain sentence what triggered it in "slowdownCause". Otherwise set slowdownCause to null.
 
       MAIN TAKEAWAY ("win"):
-      - 1 short, simple sentence (max 15 words) stating the main outcome.
-        Win example: "You finished drafting your project report before lunch."
-        Resilience example: "You stayed patient and worked through a stressful meeting."
-        Slowdown example: "You put off your assignment and spent the evening scrolling."
+      - 1 short, specific sentence (max 15 words) stating the real outcome.
 
-      FEEDBACK:
-      - 1 or 2 warm, simple, supportive sentences directly mentioning what they shared. Like a grounded friend talking to them in plain English. No cheerleading clichés, no robotic jargon.
+      FEEDBACK ("feedback"):
+      - 1 or 2 grounded, direct sentences referencing something specific they actually said. No cheerleading clichés.
 
-      SAFETY TIERS:
-      - Standard: Normal day, vent, or share.
-      - Crisis: Only if explicit, unambiguous danger to life or self-harm is stated. In crisis, provide a gentle message, set isCrisis=true, and set crisisResources to regional hotlines (like 988 and Crisis Text Line 741741).
+      SAFETY TIER:
+      - "standard" for normal work, stress, or venting.
+      - "crisis" ONLY if explicit danger to life or self-harm is stated; set isCrisis=true and provide crisisResources ("988 Suicide & Crisis Lifeline (US/CA) · Text HOME to 741741 · Find local helplines at findahelpline.com").
 
-      OUTPUT SCHEMA:
-      Return JSON with:
-      {
-        "transcript": string,
-        "category": "win" | "resilience" | "slowdown",
-        "win": string,
-        "feedback": string,
-        "slowdownCause": string | null,
-        "isWin": boolean,
-        "resiliencePoint": boolean,
-        "tone": string,
-        "tags": string[],
-        "isGrowthStory": boolean,
-        "toneEvolution": string | null,
-        "safetyTier": "standard" | "crisis",
-        "isCrisis": boolean,
-        "crisisResources": string | null,
-        "parentAlertTriggered": boolean
-      }
+      Return valid JSON matching the schema.
     `;
 
     if (pastEntries && Array.isArray(pastEntries) && pastEntries.length > 0) {
-      // Keep only recent 4 entries to keep payload compact and latency under 4s
       contents.push({
-        text: `PAST HISTORICAL ENTRIES FOR CONTEXT:\n${JSON.stringify(pastEntries.slice(0, 4))}`
+        text: `RECENT CONTEXT (max 4):\n${JSON.stringify(pastEntries.slice(0, 4))}`
       });
     }
 
     if (userAge) {
       contents.push({
-        text: `USER DECLARED AGE: ${userAge} (Under 18 flag: ${userAge < 18}). Parent email registered: ${parentEmail || "none"}`
+        text: `USER AGE: ${userAge}`
       });
     }
 
-    // High performance routing: if real-time transcript is already available,
-    // analyze text directly for sub-2-second turnaround time
-    if (effectiveText) {
-      contents.push({
-        text: systemPrompt + (
-          isUrduMode
-            ? `\nThe user spoke/wrote this reflection in Urdu. Auto-translate it into fluent everyday English for the transcript and provide all insights in English:\n"${effectiveText}"`
-            : `\nAnalyze the following spoken/typed reflection:\n"${effectiveText}"`
-        )
-      });
-    } else {
+    // Prioritize real audio whenever present so multilingual speech & mid-sentence code-switching
+    // are accurately auto-detected directly by Gemini rather than browser SpeechRecognition
+    if (audio) {
       contents.push({
         inlineData: {
           data: audio,
@@ -187,17 +169,19 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         },
       });
       contents.push({
-        text: systemPrompt + (
-          isUrduMode
-            ? "\nThe user is speaking in Urdu. Listen to the audio carefully, auto-convert what they said into natural, clear English for the transcript, and summarize everything in simple everyday English."
-            : "\nAnalyze and accurately transcribe the user's voice check-in."
-        )
+        text: systemPrompt + (effectiveText
+          ? `\nBrowser live preview hint (may be partial or single-language, trust the actual audio above): "${effectiveText}"`
+          : "\nListen carefully, auto-detect the spoken language(s), transcribe verbatim, and return the JSON result.")
+      });
+    } else {
+      contents.push({
+        text: systemPrompt + `\nAuto-detect the language(s) and analyze this written entry:\n"${effectiveText}"`
       });
     }
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: contents,
+      contents,
       config: {
         thinkingConfig: {
           thinkingBudget: 0
@@ -206,6 +190,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         responseSchema: {
           type: "OBJECT",
           properties: {
+            detectedLanguage: { type: "STRING" },
             transcript: { type: "STRING" },
             category: { type: "STRING" },
             win: { type: "STRING" },
@@ -227,7 +212,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
             parentAlertTriggered: { type: "BOOLEAN" },
             patternObservation: { type: "STRING" }
           },
-          required: ["transcript", "category", "win", "feedback", "isWin", "resiliencePoint", "tone", "tags", "safetyTier", "isCrisis"]
+          required: ["detectedLanguage", "transcript", "category", "win", "feedback", "isWin", "resiliencePoint", "tone", "tags", "safetyTier", "isCrisis"]
         }
       }
     });
@@ -237,33 +222,15 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
       throw new Error("Empty response from AI engine");
     }
 
-    let parsedResult: any;
-    try {
-      const cleaned = responseText
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      parsedResult = JSON.parse(cleaned);
-    } catch (parseError) {
-      const match = responseText.match(/\{[\s\S]*\}/);
-      if (match) {
-        parsedResult = JSON.parse(match[0]);
-      } else {
-        console.error("Failed to parse Gemini response:", responseText);
-        throw new Error("Could not parse reflection data from AI engine");
-      }
-    }
+    const parsedResult = parseGeminiJson(responseText);
 
-    // If explicit crisis triggered and user is under 18 with a parent email, record notice
     if (parsedResult.isCrisis && (userAge < 18 || parsedResult.parentAlertTriggered) && parentEmail) {
       parentalNoticeLogs.push({
         type: "crisis_alert",
         parentEmail,
         timestamp: Date.now(),
-        message: `Crisis alert dispatched for dependent. Resources surfaced: ${parsedResult.crisisResources || "988 Lifeline"}`
+        message: `Crisis alert dispatched. Resources surfaced: ${parsedResult.crisisResources || "988 Lifeline"}`
       });
-      console.log(`[Lumina Crisis Parental Notification] Alert dispatched to: ${parentEmail}`);
     }
 
     res.setHeader("Content-Type", "application/json");
@@ -272,13 +239,82 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     console.error("Error in /api/analyze-audio:", error);
     res.setHeader("Content-Type", "application/json");
     res.status(500).json({
-      error: error.message || "An error occurred while processing the check-in"
+      error: error.message || "An error occurred while processing the recording"
+    });
+  }
+});
+
+// API route: One-Click Output Transformations (Translate, Summarize, Format)
+app.post("/api/transform-entry", async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    const { text, action, targetLanguage, formatStyle } = req.body;
+
+    if (!text || !text.trim()) {
+      res.setHeader("Content-Type", "application/json");
+      res.status(400).json({ error: "Text content is required for transformation" });
+      return;
+    }
+
+    const ai = getGeminiClient();
+
+    let instruction = "";
+    if (action === "translate") {
+      const lang = (targetLanguage || "English").trim();
+      instruction = `Translate the following text accurately and naturally into ${lang}. Preserve names, numbers, and intent. Return JSON { "result": string, "label": string } where "label" is "Translated to ${lang}".`;
+    } else if (action === "summarize") {
+      instruction = `Write a crisp, factual 2-3 sentence summary capturing the key decisions, outcomes, and facts in the following text. Plain language only. Return JSON { "result": string, "label": string } where "label" is "Executive Summary".`;
+    } else if (action === "format") {
+      const style = formatStyle || "Structured Notes";
+      instruction = `Reformat the following transcript into clean ${style} with concise headings or bullet points and explicit action items if mentioned. Do not invent facts. Return JSON { "result": string, "label": string } where "label" is "${style}".`;
+    } else {
+      res.setHeader("Content-Type", "application/json");
+      res.status(400).json({ error: "Invalid transformation action" });
+      return;
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          text: `${instruction}\n\nTEXT:\n"""\n${text.trim()}\n"""`
+        }
+      ],
+      config: {
+        thinkingConfig: {
+          thinkingBudget: 0
+        },
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            result: { type: "STRING" },
+            label: { type: "STRING" }
+          },
+          required: ["result", "label"]
+        }
+      }
+    });
+
+    const responseText = response.text;
+    if (!responseText) {
+      throw new Error("Empty transformation response");
+    }
+
+    const parsed = parseGeminiJson(responseText);
+    res.setHeader("Content-Type", "application/json");
+    res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in /api/transform-entry:", error);
+    res.setHeader("Content-Type", "application/json");
+    res.status(500).json({
+      error: error.message || "Could not transform entry"
     });
   }
 });
 
 // Serve health status
 app.get("/api/health", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
   res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 

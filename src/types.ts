@@ -3,18 +3,24 @@ export interface WinEntry {
   userId: string;
   date: string; // ISO date string (e.g. "2026-07-06")
   timestamp: number; // millisecond timestamp
-  durationSeconds?: number; // check-in duration with no cutoff
-  category?: "win" | "resilience" | "slowdown"; // Category: Win, Hard moment, or What slowed you down
-  isWin?: boolean; // True if an accomplishment or positive win
-  win: string; // The simple 1-sentence win or main takeaway
-  transcript: string; // The full words you spoke or typed
-  feedback: string; // Friendly, simple reply in plain English
-  slowdownCause?: string | null; // What caused you to fall back or procrastinate
-  tone?: string; // e.g. "calm", "steady", "tired", "hopeful"
-  isGrowthStory?: boolean; // true if struggle resurfaced later with different/evolved tone
+  durationSeconds?: number;
+  category?: "win" | "resilience" | "slowdown";
+  isWin?: boolean;
+  win: string; // Concise 1-sentence main takeaway
+  transcript: string; // Captured transcript
+  detectedLanguage?: string; // Auto-detected spoken/written language(s)
+  sourceType?: "voice" | "upload" | "text";
+  audioFileName?: string | null;
+  summary?: string | null;
+  formattedNotes?: string | null;
+  translations?: Record<string, string>;
+  feedback: string; // Direct grounded reply
+  slowdownCause?: string | null;
+  tone?: string | null;
+  isGrowthStory?: boolean;
   toneEvolution?: string | null;
   growthContext?: string | null;
-  resiliencePoint: boolean; // True if stress or challenge navigated
+  resiliencePoint: boolean;
   tags?: string[];
   status?: "ongoing" | "resolved";
   safetyTier?: "standard" | "venting" | "ambiguous" | "crisis";
@@ -27,7 +33,7 @@ export interface WinEntry {
   badHabitInsight?: string | null;
   verification?: {
     verifierName: string;
-    verifierContact: string; // email or phone
+    verifierContact: string;
     verifierEmail?: string;
     verifierPhone?: string;
     verifiedAt: number;

@@ -1,14 +1,21 @@
 import { WinEntry, DidIWinData } from "../types";
 
-/**
- * Calculates consecutive days checked in quietly.
- * Never guilt-trips; if a day was missed, the count simply restarts.
- * No mascots, no sad faces, no punishing language.
- */
+export interface DailyProgressPoint {
+  date: string;
+  shortLabel: string;
+  dayNumber: string;
+  hasEntry: boolean;
+  winsCount: number;
+  resilienceCount: number;
+  slowdownCount: number;
+  dailyDelta: number;
+  cumulativeGrowth: number;
+  topTakeaway: string | null;
+}
+
 export function calculateStreak(entries: WinEntry[]): number {
   if (!entries || entries.length === 0) return 0;
 
-  // Extract unique sorted dates (YYYY-MM-DD) descending
   const uniqueDates = Array.from(
     new Set(entries.map((e) => e.date).filter(Boolean))
   ).sort().reverse();
@@ -24,13 +31,12 @@ export function calculateStreak(entries: WinEntry[]): number {
 
   const latestDate = uniqueDates[0];
 
-  // Must have an entry today or yesterday to have an active streak
   if (latestDate !== todayStr && latestDate !== yesterdayStr) {
     return 0;
   }
 
   let streak = 0;
-  let checkDate = new Date(latestDate);
+  const checkDate = new Date(latestDate);
 
   for (let i = 0; i < uniqueDates.length; i++) {
     const expectedStr = checkDate.toISOString().split("T")[0];
@@ -45,27 +51,19 @@ export function calculateStreak(entries: WinEntry[]): number {
   return streak;
 }
 
-/**
- * Weekly Mirror: Reflect back ONLY what the user already said that week.
- * A quiet summary, strictly without unsolicited coaching or commentary.
- */
 export function getWeeklyMirrorData(entries: WinEntry[]) {
   if (!entries || entries.length === 0) return null;
 
-  // Group latest 7 check-ins (or entries within the last 7 calendar days)
   const last7 = entries.slice(0, 7);
   if (last7.length === 0) return null;
 
-  // Compile user's own topics and stated actions without added commentary
   const userVerbatimPoints: string[] = [];
   const userTopicsSet = new Set<string>();
   const growthStories = last7.filter((e) => e.isGrowthStory);
   const resilienceSaves = last7.filter((e) => e.resiliencePoint);
 
   last7.forEach((entry) => {
-    if (entry.win) {
-      userVerbatimPoints.push(entry.win);
-    }
+    if (entry.win) userVerbatimPoints.push(entry.win);
     (entry.tags || []).forEach((t) => userTopicsSet.add(t));
   });
 
@@ -77,47 +75,106 @@ export function getWeeklyMirrorData(entries: WinEntry[]) {
     userVerbatimPoints,
     userTopics: Array.from(userTopicsSet),
     growthStoriesCount: growthStories.length,
-    resilienceSavesCount: resilienceSaves.length
+    resilienceSavesCount: resilienceSaves.length,
   };
 }
 
 /**
- * Report Card Data Generator
- * Honest accounting across 3-day, 7-day, 14-day, and 30-day windows.
- * Plain English: Days recorded, wins, hard moments pushed through,
- * and what caused you to fall back or slow down.
+ * Generates exact calendar days for the requested window ending today.
+ * Missed days have hasEntry=false so the Progress Card renders them completely blank.
+ * Also calculates cumulative growth points for the Growth Graph.
  */
+export function getDailyProgressSeries(
+  entries: WinEntry[],
+  periodDays: number
+): DailyProgressPoint[] {
+  const byDate: Record<string, WinEntry[]> = {};
+  entries.forEach((e) => {
+    if (!e.date) return;
+    if (!byDate[e.date]) byDate[e.date] = [];
+    byDate[e.date].push(e);
+  });
+
+  const series: DailyProgressPoint[] = [];
+  let runningGrowth = 0;
+
+  for (let offset = periodDays - 1; offset >= 0; offset--) {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    const iso = d.toISOString().split("T")[0];
+    const dayEntries = byDate[iso] || [];
+    const hasEntry = dayEntries.length > 0;
+
+    let winsCount = 0;
+    let resilienceCount = 0;
+    let slowdownCount = 0;
+
+    dayEntries.forEach((e) => {
+      if (e.category === "slowdown" || (!e.category && e.slowdownCause)) {
+        slowdownCount++;
+      } else if (e.category === "resilience" || (!e.category && e.resiliencePoint)) {
+        resilienceCount++;
+      } else {
+        winsCount++;
+      }
+    });
+
+    // Growth increments on active days (+1 per win/resilience, +0.5 for showing up on slowdown)
+    const dailyDelta = winsCount * 1 + resilienceCount * 1 + slowdownCount * 0.5;
+    runningGrowth += dailyDelta;
+
+    const shortLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const dayNumber = String(d.getDate());
+
+    series.push({
+      date: iso,
+      shortLabel,
+      dayNumber,
+      hasEntry,
+      winsCount,
+      resilienceCount,
+      slowdownCount,
+      dailyDelta,
+      cumulativeGrowth: Number(runningGrowth.toFixed(1)),
+      topTakeaway: dayEntries[0]?.win || null,
+    });
+  }
+
+  return series;
+}
+
 export function generateDidIWinCard(
   entries: WinEntry[],
-  milestone: "3-day" | "7-day" | "14-day" | "30-day" = "3-day"
+  milestone: "3-day" | "7-day" | "14-day" | "30-day" = "7-day"
 ): DidIWinData {
-  const periodDays = milestone === "3-day" ? 3 : milestone === "7-day" ? 7 : milestone === "14-day" ? 14 : 30;
+  const periodDays =
+    milestone === "3-day" ? 3 : milestone === "7-day" ? 7 : milestone === "14-day" ? 14 : 30;
 
-  // Filter entries in the window
-  const targetEntries = entries.slice(0, periodDays * 2); // get entries from the period
-  const uniqueDatesRecorded = new Set(targetEntries.map((e) => e.date).filter(Boolean));
-  const daysRecorded = Math.min(uniqueDatesRecorded.size, periodDays);
+  const series = getDailyProgressSeries(entries, periodDays);
+  const windowDates = new Set(series.map((s) => s.date));
+  const targetEntries = entries.filter((e) => e.date && windowDates.has(e.date));
+
+  const daysRecorded = series.filter((s) => s.hasEntry).length;
   const daysMissed = Math.max(0, periodDays - daysRecorded);
 
-  // 1. Wins (clear accomplishments)
-  const winEntries = targetEntries.filter(e => e.category === "win" || (e.isWin && !e.resiliencePoint));
-  const wins = (winEntries.length > 0 ? winEntries : targetEntries.filter(e => !e.resiliencePoint && e.category !== "slowdown"))
-    .map(e => e.win)
-    .filter(Boolean)
-    .slice(0, 5);
+  const winEntries = targetEntries.filter(
+    (e) => e.category === "win" || (e.isWin && !e.resiliencePoint && e.category !== "slowdown")
+  );
+  const wins = winEntries.map((e) => e.win).filter(Boolean).slice(0, 5);
 
-  // 2. Hard Moments (resilience)
-  const resilienceCount = targetEntries.filter(e => e.category === "resilience" || e.resiliencePoint).length;
+  const resilienceCount = targetEntries.filter(
+    (e) => e.category === "resilience" || (e.resiliencePoint && e.category !== "slowdown")
+  ).length;
 
-  // 3. What Slowed You Down & Reasons for Falling Back
-  const slowdownEntries = targetEntries.filter(e => e.category === "slowdown" || Boolean(e.slowdownCause));
-  const slowdowns = slowdownEntries.map(e => e.win).filter(Boolean).slice(0, 4);
+  const slowdownEntries = targetEntries.filter(
+    (e) => e.category === "slowdown" || Boolean(e.slowdownCause)
+  );
+  const slowdowns = slowdownEntries.map((e) => e.win).filter(Boolean).slice(0, 4);
   const slowdownCauses = slowdownEntries
-    .map(e => e.slowdownCause)
+    .map((e) => e.slowdownCause)
     .filter((c): c is string => Boolean(c && c.trim()))
     .slice(0, 4);
 
-  // Detect repeated themes
   const topicCounts: Record<string, number> = {};
   targetEntries.forEach((entry) => {
     (entry.tags || []).forEach((tag) => {
@@ -131,11 +188,13 @@ export function generateDidIWinCard(
     .map(([topic, count]) => `${topic} (${count} times)`)
     .slice(0, 4);
 
-  // One line in user's own words
-  let userOwnWordsQuote = "I kept showing up and doing what I could.";
+  let userOwnWordsQuote = "No reflections recorded in this period yet.";
   for (const entry of targetEntries) {
-    if (entry.transcript && entry.transcript.length > 15) {
-      const sentences = entry.transcript.split(/[.!?]+/).map((s) => s.trim()).filter((s) => s.length > 20);
+    if (entry.transcript && entry.transcript.length > 10) {
+      const sentences = entry.transcript
+        .split(/[.!?]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 12);
       if (sentences.length > 0) {
         userOwnWordsQuote = sentences[0];
         break;
@@ -151,14 +210,14 @@ export function generateDidIWinCard(
     daysRecorded,
     daysMissed,
     totalDaysInPeriod: periodDays,
-    wins: wins.length > 0 ? wins : ["Check-ins logged for this time window."],
+    wins,
     resilienceCount,
     slowdowns: slowdowns.length > 0 ? slowdowns : ["No major slowdowns recorded."],
-    slowdownCauses: slowdownCauses.length > 0 ? slowdownCauses : [],
-    whatRepeated: whatRepeated.length > 0 ? whatRepeated : ["Consistent check-in focus."],
+    slowdownCauses,
+    whatRepeated: whatRepeated.length > 0 ? whatRepeated : ["Keep recording to surface themes."],
     userOwnWordsQuote,
-    periodLabel: `${periodDays}-Day Report Card`,
+    periodLabel: `${periodDays}-Day Progress Card`,
     growthStoryCount,
-    streakCount
+    streakCount,
   };
 }

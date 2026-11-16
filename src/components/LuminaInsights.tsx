@@ -1,19 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { WinEntry, UserSession } from "../types";
-import { 
-  Calendar, 
-  Activity, 
-  Eye, 
-  EyeOff, 
-  FileText, 
-  Sparkles, 
-  Compass, 
-  CheckCircle2, 
-  Quote, 
-  Award, 
-  Clock 
-} from "lucide-react";
-import { motion } from "motion/react";
+import { Calendar, Activity, Eye, EyeOff } from "lucide-react";
 import { getWeeklyMirrorData, calculateStreak } from "../utils/sovereignMetrics";
 
 interface LuminaInsightsProps {
@@ -21,29 +8,17 @@ interface LuminaInsightsProps {
   user: UserSession;
 }
 
-export default function LuminaInsights({ entries, user }: LuminaInsightsProps) {
+export default function LuminaInsights({ entries }: LuminaInsightsProps) {
   const [showObservations, setShowObservations] = useState(true);
-
-  // 0. Streak Calculation for Mirror Module
   const streak = useMemo(() => calculateStreak(entries), [entries]);
+  const weeklyMirror = useMemo(() => getWeeklyMirrorData(entries), [entries]);
 
-  // 1. Weekly Mirror: Strictly reflect back only what the user already said that week
-  const weeklyMirror = useMemo(() => {
-    return getWeeklyMirrorData(entries);
-  }, [entries]);
-
-  // 2. Pattern Watch: Multi-day repeating patterns ONLY (never off a single day)
   const patternWatch = useMemo(() => {
-    const observations: { title: string; count: number; description: string; notes: string }[] = [];
-
+    const observations: { title: string; count: number; notes: string }[] = [];
     if (!entries || entries.length < 2) {
-      return {
-        observations: [],
-        hasMultipleEntries: false
-      };
+      return { observations: [] };
     }
 
-    // Check occurrences across distinct check-in days
     let distractionDays = 0;
     let postponementDays = 0;
     let busyworkDays = 0;
@@ -59,311 +34,199 @@ export default function LuminaInsights({ entries, user }: LuminaInsightsProps) {
         combined.includes("distract") ||
         combined.includes("phone") ||
         combined.includes("social media") ||
-        combined.includes("browse") ||
-        combined.includes("youtube") ||
-        combined.includes("reddit")
+        combined.includes("youtube")
       ) {
         distractionDays++;
       }
-
       if (
         combined.includes("avoid") ||
         combined.includes("put off") ||
         combined.includes("postpone") ||
         combined.includes("procrastinat") ||
-        combined.includes("delay") ||
-        combined.includes("hesitat")
+        combined.includes("delay")
       ) {
         postponementDays++;
       }
-
-      if (
-        combined.includes("busywork") ||
-        combined.includes("trivial") ||
-        combined.includes("rabbit hole") ||
-        combined.includes("tangent")
-      ) {
+      if (combined.includes("busywork") || combined.includes("trivial") || combined.includes("tangent")) {
         busyworkDays++;
       }
-
       if (
         combined.includes("exhaust") ||
         combined.includes("burned out") ||
         combined.includes("late night") ||
         combined.includes("sleep") ||
-        combined.includes("drained")
+        combined.includes("tired")
       ) {
         fatigueDays++;
       }
     });
 
-    // Rule: ONLY surface observations when repeated across multiple days (>= 2)
     if (distractionDays >= 2) {
       observations.push({
-        title: "Digital Distraction & Context Switching",
+        title: "Context Switching & Screen Distraction",
         count: distractionDays,
-        description: `Mentioned on ${distractionDays} separate check-in days.`,
-        notes: "Navigating away during friction points or high-focus blocks was noted across several sessions."
+        notes: `Appeared across ${distractionDays} separate entries.`,
       });
     }
-
     if (postponementDays >= 2) {
       observations.push({
-        title: "Task Postponement on High-Friction Items",
+        title: "Postponing Hard Tasks",
         count: postponementDays,
-        description: `Mentioned on ${postponementDays} separate check-in days.`,
-        notes: "Challenging tasks or hard conversations were postponed until later in the daily cycle."
+        notes: `High-friction work was deferred across ${postponementDays} logged days.`,
       });
     }
-
     if (busyworkDays >= 2) {
       observations.push({
-        title: "Tangent / Secondary Tasks Prioritization",
+        title: "Secondary Tasks First",
         count: busyworkDays,
-        description: `Mentioned on ${busyworkDays} separate check-in days.`,
-        notes: "Secondary formatting or auxiliary items occupied focus windows before primary goals."
+        notes: `Auxiliary cleanup occupied focus blocks on ${busyworkDays} days.`,
       });
     }
-
     if (fatigueDays >= 2) {
       observations.push({
-        title: "Energy & Recovery Depletion",
+        title: "Sleep & Recovery Debt",
         count: fatigueDays,
-        description: `Mentioned on ${fatigueDays} separate check-in days.`,
-        notes: "Fatigue or sleep strain appeared repeatedly as a headwind against focus."
+        notes: `Fatigue surfaced across ${fatigueDays} sessions.`,
       });
     }
 
-    return {
-      observations,
-      hasMultipleEntries: true
-    };
+    return { observations };
   }, [entries]);
 
   return (
-    <div className="space-y-12 max-w-3xl mx-auto text-left py-2" id="lumina-insights-root">
-      
-      {/* Header */}
-      <div className="space-y-2 border-b border-earth-200 pb-6">
-        <h2 className="text-2xl sm:text-3xl font-serif text-earth-900 font-bold tracking-tight">
-          Mirror & Observations
+    <div className="space-y-8 max-w-3xl mx-auto text-left" id="lumina-insights-root">
+      <div className="border-b border-[#233428]/10 pb-5 space-y-1">
+        <span className="text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
+          Mirror &amp; Pattern Watch
+        </span>
+        <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D241F] tracking-tight">
+          Only what you recorded
         </h2>
-        <p className="text-xs sm:text-sm text-earth-600 leading-relaxed max-w-xl">
-          A quiet, non-punishing mirror reflecting back only what you spoke. No unsolicited commentary, no gamification badges, and no scolding.
-        </p>
       </div>
 
-      {/* Streak Module in Mirror */}
-      <div className="p-6 bg-white rounded-3xl border border-earth-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5" id="lumina-mirror-streak-module">
+      <div
+        className="glass-panel rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5"
+        id="lumina-mirror-streak-module"
+      >
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-sage" />
-            <span className="text-[11px] font-mono uppercase tracking-widest text-earth-500 font-semibold">
-              Reflection Streak
-            </span>
+          <span className="text-xs font-mono uppercase tracking-wider text-[#546257]">
+            Quiet Streak
+          </span>
+          <div className="text-3xl font-display font-bold text-[#1D241F] tabular-nums">
+            Day {streak}
           </div>
-          <div className="text-3xl sm:text-4xl font-serif font-bold text-earth-900">
-            {streak > 0 ? `Day ${streak}` : "Day 0"}
-          </div>
-          <p className="text-xs text-earth-600 max-w-sm">
+          <p className="text-xs text-[#546257]">
             {streak > 0
-              ? `You are on Day ${streak} of your continuous reflection streak.`
-              : "Complete a check-in today to unlock Day 1 of your reflection journey."}
+              ? `${streak} consecutive ${streak === 1 ? "day" : "days"} logged.`
+              : "Log a session today to start Day 1."}
           </p>
         </div>
 
-        {/* Visual Day Steps: Day 1, Day 2, etc. */}
-        <div className="flex items-center gap-2 bg-earth-50 p-2.5 rounded-2xl border border-earth-100 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {[1, 2, 3, 4, 5, 6, 7].map((dayNum) => {
             const isCompleted = streak >= dayNum;
-            const isCurrent = streak === dayNum - 1 && streak < 7;
             return (
               <div
                 key={dayNum}
-                className={`w-11 h-13 rounded-xl flex flex-col items-center justify-center text-[10px] font-mono transition-all ${
+                className={`w-10 h-11 rounded-xl flex flex-col items-center justify-center text-[10px] font-mono tabular-nums border ${
                   isCompleted
-                    ? "bg-sage text-white font-bold shadow-2xs"
-                    : isCurrent
-                    ? "bg-white border-2 border-dashed border-sage text-sage font-semibold"
-                    : "bg-white/80 border border-earth-200 text-earth-400"
+                    ? "bg-[#4B6B53] border-[#4B6B53] text-white font-bold"
+                    : "bg-transparent border-dashed border-[#233428]/20 text-[#546257]/60"
                 }`}
               >
-                <span className="text-[9px] uppercase tracking-tighter opacity-80">Day</span>
-                <span className="text-sm font-bold leading-none mt-0.5">{dayNum}</span>
+                <span className="text-[9px] uppercase">D</span>
+                <span className="text-xs font-bold leading-none mt-0.5">{dayNum}</span>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* SECTION 1: THE WEEKLY MIRROR */}
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-sage" />
-            <h3 className="text-lg font-serif text-earth-900 font-bold">
-              Weekly Mirror
-            </h3>
-          </div>
+          <h3 className="text-lg font-display font-semibold text-[#1D241F] flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-[#4B6B53]" />
+            <span>Weekly Mirror</span>
+          </h3>
           {weeklyMirror && (
-            <span className="text-[10px] font-mono text-earth-500 uppercase tracking-wider font-semibold">
-              Window: {weeklyMirror.startDate} to {weeklyMirror.endDate}
+            <span className="text-xs font-mono text-[#546257] tabular-nums">
+              {weeklyMirror.startDate} – {weeklyMirror.endDate}
             </span>
           )}
         </div>
 
         {weeklyMirror ? (
-          <div className="bg-white rounded-3xl border border-earth-200 p-6 sm:p-8 space-y-6 shadow-sm">
-            {/* Mirror Premise */}
-            <div className="p-4 bg-earth-50 rounded-2xl border border-earth-100 text-xs text-earth-700 leading-relaxed">
-              <span className="font-semibold text-earth-900 font-mono text-[10px] uppercase tracking-wider block mb-1">
-                Quiet Reflection Protocol
-              </span>
-              Below is the exact summary of what you logged across your recent check-ins. No editorializing or judgment has been added.
-            </div>
-
-            {/* Stated Actions & Wins */}
-            <div className="space-y-3">
-              <h4 className="text-[10px] font-mono uppercase tracking-widest text-earth-400 font-bold">
-                Actions & Accomplishments You Logged ({weeklyMirror.count})
-              </h4>
-              <div className="space-y-2.5">
-                {weeklyMirror.entries.map((entry, idx) => (
-                  <div
-                    key={entry.id || idx}
-                    className="p-3.5 bg-earth-50/70 rounded-2xl border border-earth-100 flex flex-col sm:flex-row sm:items-start justify-between gap-2"
-                  >
-                    <div className="space-y-1">
-                      <p className="text-xs text-earth-900 font-medium leading-relaxed">
-                        "{entry.win}"
-                      </p>
-                      {entry.tone && (
-                        <span className="text-[9px] font-mono text-earth-500 uppercase tracking-wider inline-block">
-                          Tone: {entry.tone}
-                        </span>
-                      )}
-                      {entry.isGrowthStory && (
-                        <span className="text-[9px] font-mono text-sage bg-sage/10 px-2 py-0.5 rounded border border-sage/20 ml-2 font-semibold">
-                          ✓ Growth Story
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] font-mono text-earth-400 flex-shrink-0">
-                      {entry.date}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Topics Handled This Week */}
-            {weeklyMirror.userTopics.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-earth-100">
-                <h4 className="text-[10px] font-mono uppercase tracking-widest text-earth-400 font-bold">
-                  Topics Stated By You
-                </h4>
-                <div className="flex flex-wrap gap-1.5">
-                  {weeklyMirror.userTopics.map((topic, idx) => (
-                    <span
-                      key={idx}
-                      className="text-[11px] font-mono px-3 py-1 bg-earth-50 text-earth-800 rounded-xl border border-earth-200"
-                    >
-                      #{topic}
-                    </span>
-                  ))}
+          <div className="glass-panel rounded-3xl p-5 space-y-2.5">
+            {weeklyMirror.entries.map((entry, idx) => (
+              <div
+                key={entry.id || idx}
+                className="rounded-2xl bg-[#F4F6F0] border border-[#233428]/10 p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-2"
+              >
+                <div className="space-y-1">
+                  <p className="text-sm text-[#1D241F] font-medium">{entry.win}</p>
+                  <p className="text-[11px] font-mono text-[#546257]">
+                    {[entry.detectedLanguage, entry.tone ? `Tone: ${entry.tone}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
                 </div>
+                <span className="text-xs font-mono text-[#546257] shrink-0 tabular-nums">
+                  {entry.date}
+                </span>
               </div>
-            )}
+            ))}
           </div>
         ) : (
-          <div className="bg-white rounded-3xl border border-dashed border-earth-200 p-8 text-center space-y-2">
-            <p className="text-xs font-mono text-earth-500">
-              Your Weekly Mirror compiles automatically once you record check-ins.
-            </p>
-            <p className="text-[11px] text-earth-400">
-              Check in with your voice to see your quiet 7-day reflection reflected back here.
-            </p>
+          <div className="glass-panel rounded-3xl p-8 text-center text-xs font-mono text-[#546257]">
+            Your Weekly Mirror populates once you log entries.
           </div>
         )}
       </div>
 
-      {/* SECTION 2: PATTERN WATCH */}
-      <div className="space-y-6 border-t border-earth-200 pt-10">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-terracotta" />
-              <h3 className="text-lg font-serif text-earth-900 font-bold">
-                Pattern Watch
-              </h3>
-            </div>
-            <p className="text-xs text-earth-600">
-              Gentle observations about lost time or procrastination surfaced only when repeating across several check-ins.
-            </p>
-          </div>
-
+      <div className="space-y-4 border-t border-[#233428]/10 pt-6">
+        <div className="flex items-center justify-between gap-4">
+          <h3 className="text-lg font-display font-semibold text-[#1D241F] flex items-center gap-2">
+            <Activity className="w-4 h-4 text-[#C86F52]" />
+            <span>Pattern Watch</span>
+          </h3>
           <button
             type="button"
             onClick={() => setShowObservations(!showObservations)}
-            className="self-start sm:self-auto px-3 py-1.5 rounded-xl text-xs font-mono border border-earth-200 bg-white hover:bg-earth-50 text-earth-700 flex items-center gap-1.5 transition-all cursor-pointer font-medium"
+            className="min-h-[34px] px-3 py-1 rounded-xl bg-white border border-[#233428]/12 text-xs font-mono text-[#546257] hover:text-[#1D241F] inline-flex items-center gap-1.5 cursor-pointer"
           >
-            {showObservations ? (
-              <>
-                <EyeOff className="w-3.5 h-3.5 text-earth-400" />
-                Hide Observations
-              </>
-            ) : (
-              <>
-                <Eye className="w-3.5 h-3.5 text-earth-400" />
-                Show Observations
-              </>
-            )}
+            {showObservations ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            <span>{showObservations ? "Hide" : "Show"}</span>
           </button>
         </div>
 
         {showObservations && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-4"
-          >
+          <>
             {patternWatch.observations.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {patternWatch.observations.map((obs, idx) => (
-                  <div
-                    key={idx}
-                    className="p-5 bg-white rounded-2xl border border-earth-200 space-y-2 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-serif font-bold text-earth-900">
+                  <div key={idx} className="glass-panel rounded-2xl p-5 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-display font-semibold text-[#1D241F]">
                         {obs.title}
                       </h4>
-                      <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-terracotta/10 text-terracotta border border-terracotta/20 font-bold">
-                        {obs.count} check-ins
+                      <span className="text-xs font-mono text-[#C86F52] tabular-nums">
+                        {obs.count} days
                       </span>
                     </div>
-                    <p className="text-xs text-earth-600 leading-relaxed">
-                      {obs.notes}
-                    </p>
+                    <p className="text-xs text-[#546257] leading-relaxed">{obs.notes}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-6 bg-earth-50 rounded-2xl border border-earth-200/80 text-center space-y-1">
-                <p className="text-xs font-mono text-earth-700 font-medium">
-                  {entries.length < 2
-                    ? "Lumina requires at least 2 distinct check-in days to evaluate repeating patterns."
-                    : "No multi-day friction patterns detected."}
-                </p>
-                <p className="text-[11px] text-earth-500 max-w-md mx-auto leading-relaxed">
-                  Lumina adheres to a strict principle: when uncertain whether entries connect, we default to staying silent rather than guessing wrong or scolding.
-                </p>
+              <div className="glass-panel rounded-2xl p-6 text-center text-xs font-mono text-[#546257]">
+                {entries.length < 2
+                  ? "Requires at least 2 logged days to evaluate repeating patterns."
+                  : "No repeating slowdown patterns detected across days."}
               </div>
             )}
-          </motion.div>
+          </>
         )}
       </div>
-
     </div>
   );
 }

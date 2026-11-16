@@ -1,6 +1,6 @@
 {
   "name": "Lumina",
-  "description": "A voice-first private record for young people building something on their own with nobody to talk to.",
+  "description": "Multilingual voice capture and private progress record for young people building something on their own.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

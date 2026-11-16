@@ -12,7 +12,7 @@
     },
     "WinEntry": {
       "title": "WinEntry",
-      "description": "Daily reflection entry in sovereign vault",
+      "description": "Daily voice or text entry in private record",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
@@ -23,6 +23,11 @@
         "slowdownCause": { "type": "string" },
         "isWin": { "type": "boolean" },
         "transcript": { "type": "string" },
+        "detectedLanguage": { "type": "string" },
+        "sourceType": { "type": "string" },
+        "audioFileName": { "type": "string" },
+        "summary": { "type": "string" },
+        "formattedNotes": { "type": "string" },
         "feedback": { "type": "string" },
         "resiliencePoint": { "type": "boolean" },
         "tags": { "type": "array" },
@@ -40,7 +45,7 @@
     },
     "/users/{userId}/entries/{entryId}": {
       "schema": "WinEntry",
-      "description": "Private win vault entries belonging to the user"
+      "description": "Private record entries belonging to the user"
     }
   }
 }

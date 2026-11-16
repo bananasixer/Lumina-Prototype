@@ -1,171 +1,313 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { WinEntry } from "../types";
-import { generateDidIWinCard } from "../utils/sovereignMetrics";
-import { Printer, Quote, CheckCircle2, RotateCcw, Award, Flame, AlertCircle, Clock, Sparkles } from "lucide-react";
+import {
+  generateDidIWinCard,
+  getDailyProgressSeries,
+  DailyProgressPoint,
+} from "../utils/sovereignMetrics";
+import { Printer, Check, Award, Sparkles, Clock, TrendingUp } from "lucide-react";
 
 interface DidIWinCardProps {
   entries: WinEntry[];
   userName?: string;
-  onClose?: () => void;
   onNavigateRecord?: () => void;
 }
 
 export default function DidIWinCard({ entries, userName, onNavigateRecord }: DidIWinCardProps) {
-  // Automatically choose milestone based on user's logged entries
   const getAutoMilestone = (): "3-day" | "7-day" | "14-day" | "30-day" => {
-    const uniqueDays = new Set(entries.map(e => e.date).filter(Boolean)).size;
+    const uniqueDays = new Set(entries.map((e) => e.date).filter(Boolean)).size;
     if (uniqueDays >= 30) return "30-day";
     if (uniqueDays >= 14) return "14-day";
     if (uniqueDays >= 7) return "7-day";
-    return "3-day";
+    return "7-day";
   };
 
-  const [milestone, setMilestone] = useState<"3-day" | "7-day" | "14-day" | "30-day">(getAutoMilestone());
-  const cardRef = useRef<HTMLDivElement>(null);
+  const [milestone, setMilestone] = useState<"3-day" | "7-day" | "14-day" | "30-day">(
+    getAutoMilestone()
+  );
+  const [hoveredDay, setHoveredDay] = useState<DailyProgressPoint | null>(null);
 
   useEffect(() => {
     setMilestone(getAutoMilestone());
   }, [entries.length]);
 
-  const cardData = generateDidIWinCard(entries, milestone);
+  const periodDays =
+    milestone === "3-day" ? 3 : milestone === "7-day" ? 7 : milestone === "14-day" ? 14 : 30;
+  const cardData = useMemo(() => generateDidIWinCard(entries, milestone), [entries, milestone]);
+  const dailySeries = useMemo(
+    () => getDailyProgressSeries(entries, periodDays),
+    [entries, periodDays]
+  );
 
-  const handlePrint = () => {
-    window.print();
-  };
+  // Compute SVG coordinates for the Growth Graph
+  const graphWidth = 640;
+  const graphHeight = 160;
+  const padX = 24;
+  const padY = 20;
+  const usableW = graphWidth - padX * 2;
+  const usableH = graphHeight - padY * 2;
+  const maxGrowth = Math.max(3, ...dailySeries.map((d) => d.cumulativeGrowth));
+
+  const points = dailySeries.map((d, idx) => {
+    const x =
+      dailySeries.length === 1
+        ? padX + usableW / 2
+        : padX + (idx / (dailySeries.length - 1)) * usableW;
+    const y = padY + usableH - (d.cumulativeGrowth / maxGrowth) * usableH;
+    return { x, y, data: d };
+  });
+
+  const linePath =
+    points.length > 0
+      ? points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ")
+      : "";
+
+  const areaPath =
+    points.length > 0
+      ? `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${(graphHeight - padY).toFixed(
+          1
+        )} L ${points[0].x.toFixed(1)} ${(graphHeight - padY).toFixed(1)} Z`
+      : "";
+
+  const activeHover = hoveredDay || dailySeries[dailySeries.length - 1] || null;
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto text-left" id="report-card-root">
-      {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-earth-200 pb-4 print:hidden">
-        <div>
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-terracotta" />
-            <h3 className="text-xl font-serif text-earth-900 font-bold">
-              Your Report Card
-            </h3>
+    <div className="space-y-6 max-w-3xl mx-auto text-left" id="report-card-root">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#233428]/10 pb-4 print:hidden">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5 text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
+            <Award className="w-3.5 h-3.5" />
+            <span>Progress Card</span>
           </div>
-          <p className="text-xs text-earth-600 mt-0.5">
-            Generated automatically after 3 days, 7 days, 14 days, and 30 days of check-ins.
-          </p>
+          <h2 className="text-2xl font-display font-bold text-[#1D241F]">Did I Win?</h2>
         </div>
 
-        {/* Milestone Selector Tabs: 3 Days, 7 Days, 14 Days, 30 Days */}
-        <div className="flex items-center gap-1 bg-earth-100 p-1 rounded-xl border border-earth-200 text-xs font-mono">
+        <div className="flex items-center gap-1 glass-panel p-1 rounded-xl text-xs font-mono self-start sm:self-auto">
           {(["3-day", "7-day", "14-day", "30-day"] as const).map((cycle) => (
             <button
               key={cycle}
-              onClick={() => setMilestone(cycle)}
-              className={`px-3 py-1.5 rounded-lg transition-all capitalize font-semibold cursor-pointer ${
+              type="button"
+              onClick={() => {
+                setMilestone(cycle);
+                setHoveredDay(null);
+              }}
+              className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
                 milestone === cycle
-                  ? "bg-white text-earth-900 shadow-sm border border-earth-200/60"
-                  : "text-earth-600 hover:text-earth-900"
+                  ? "bg-[#4B6B53] text-white font-medium"
+                  : "text-[#546257] hover:text-[#1D241F]"
               }`}
             >
-              {cycle === "3-day" ? "3 Days" : cycle === "7-day" ? "7 Days" : cycle === "14-day" ? "14 Days" : "30 Days"}
+              {cycle === "3-day" ? "3d" : cycle === "7-day" ? "7d" : cycle === "14-day" ? "14d" : "30d"}
             </button>
           ))}
         </div>
       </div>
 
-      {/* The Printable / Exportable One-Page Card */}
-      <div
-        ref={cardRef}
-        id="report-card-printable"
-        className="bg-white rounded-3xl border border-earth-200/90 p-8 sm:p-10 shadow-lg space-y-8 print:border-none print:shadow-none print:p-4 relative overflow-hidden"
-      >
-        {/* Subtle decorative background accent */}
-        <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-br from-terracotta/[0.03] to-sage/[0.04] rounded-bl-full pointer-events-none" />
-
-        {/* Card Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-earth-100 pb-5 gap-3">
+      {/* Printable Progress Card */}
+      <div id="report-card-printable" className="glass-panel rounded-3xl p-6 sm:p-8 space-y-7">
+        {/* Card Top Summary */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#233428]/10 pb-5 gap-3">
           <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-terracotta font-bold">
+            <span className="text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
               {cardData.periodLabel}
             </span>
-            <h4 className="text-2xl font-serif text-earth-900 font-bold mt-1">
+            <h3 className="text-2xl font-display font-bold text-[#1D241F] mt-0.5">
               Personal Progress Card
-            </h4>
-            <p className="text-xs text-earth-500 font-mono mt-0.5">
-              Review for {userName || "You"}
-            </p>
+            </h3>
+            <p className="text-xs font-mono text-[#546257] mt-0.5">{userName || "Builder"}</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="px-3.5 py-1.5 bg-earth-50 border border-earth-200 rounded-xl text-center">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-earth-400 block font-bold">
-                Streak
-              </span>
-              <span className="text-sm font-mono font-bold text-earth-900">
+          <div className="flex items-center gap-4 text-xs font-mono tabular-nums">
+            <div>
+              <span className="text-[#546257] block text-[10px] uppercase">Streak</span>
+              <span className="text-base font-bold text-[#1D241F]">
                 {cardData.streakCount} {cardData.streakCount === 1 ? "day" : "days"}
               </span>
             </div>
-            <div className="px-3.5 py-1.5 bg-sage/5 border border-sage/20 rounded-xl text-center">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-sage block font-bold">
-                Logged
+            <div className="border-l border-[#233428]/12 pl-4">
+              <span className="text-[#546257] block text-[10px] uppercase">Recorded</span>
+              <span className="text-base font-bold text-[#4B6B53]">
+                {cardData.daysRecorded}/{cardData.totalDaysInPeriod}
               </span>
-              <span className="text-sm font-mono font-bold text-sage">
-                {cardData.daysRecorded}/{cardData.totalDaysInPeriod} days
-              </span>
+            </div>
+            <div className="border-l border-[#233428]/12 pl-4">
+              <span className="text-[#546257] block text-[10px] uppercase">Missed</span>
+              <span className="text-base font-bold text-[#C86F52]">{cardData.daysMissed}</span>
             </div>
           </div>
         </div>
 
-        {/* Days Logged vs Days Missed */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="p-5 bg-earth-50 rounded-2xl border border-earth-200/80 space-y-1">
-            <div className="flex items-center gap-2 text-earth-700">
-              <CheckCircle2 className="w-4 h-4 text-sage" />
-              <span className="text-xs font-mono uppercase tracking-wider font-bold">Days Checked In</span>
-            </div>
-            <p className="text-3xl font-serif text-earth-900 font-bold">
-              {cardData.daysRecorded}{" "}
-              <span className="text-xs font-sans text-earth-500 font-normal">
-                out of {cardData.totalDaysInPeriod} days
-              </span>
-            </p>
-            <p className="text-[11px] text-earth-600 leading-relaxed pt-1">
-              Days you took a minute to record what you did and how your day went.
-            </p>
-          </div>
-
-          <div className="p-5 bg-earth-50 rounded-2xl border border-earth-200/80 space-y-1">
-            <div className="flex items-center gap-2 text-earth-700">
-              <RotateCcw className="w-4 h-4 text-earth-400" />
-              <span className="text-xs font-mono uppercase tracking-wider font-bold">Days Missed</span>
-            </div>
-            <p className="text-3xl font-serif text-earth-900 font-bold">
-              {cardData.daysMissed}{" "}
-              <span className="text-xs font-sans text-earth-500 font-normal">
-                {cardData.daysMissed === 1 ? "day" : "days"}
-              </span>
-            </p>
-            <p className="text-[11px] text-earth-600 leading-relaxed pt-1">
-              No guilt or bad marks. Just honest tracking so you see your real habits.
-            </p>
-          </div>
-        </div>
-
-        {/* Wins Section */}
+        {/* Daily Attendance Strip: Recorded Days Filled, Missed Days Left Blank */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-sage" />
-            <h5 className="text-xs font-mono uppercase tracking-wider text-earth-700 font-bold">
-              Your Wins ({cardData.wins.length})
-            </h5>
+          <div className="flex items-center justify-between text-xs font-mono text-[#546257]">
+            <span className="uppercase tracking-wider">Daily Record (Missed days left blank)</span>
+            <span className="hidden sm:inline">Filled = Recorded · Blank = Missed</span>
           </div>
+
+          <div
+            className={`grid gap-2 ${
+              periodDays === 3
+                ? "grid-cols-3"
+                : periodDays === 7
+                ? "grid-cols-7"
+                : periodDays === 14
+                ? "grid-cols-7"
+                : "grid-cols-6 sm:grid-cols-10"
+            }`}
+          >
+            {dailySeries.map((day) => (
+              <button
+                key={day.date}
+                type="button"
+                onMouseEnter={() => setHoveredDay(day)}
+                onClick={() => setHoveredDay(day)}
+                title={`${day.shortLabel}: ${
+                  day.hasEntry ? `${day.winsCount + day.resilienceCount + day.slowdownCount} logged` : "Missed (blank)"
+                }`}
+                className={`h-14 rounded-xl border flex flex-col items-center justify-between py-2 px-1 transition-all cursor-pointer ${
+                  day.hasEntry
+                    ? "bg-[#4B6B53]/12 border-[#4B6B53]/40 text-[#1D241F]"
+                    : "bg-transparent border-dashed border-[#233428]/18 text-[#546257]/60"
+                }`}
+              >
+                <span className="text-[10px] font-mono tabular-nums">{day.dayNumber}</span>
+                {day.hasEntry ? (
+                  <span className="w-4 h-4 rounded-full bg-[#4B6B53] text-white flex items-center justify-center">
+                    <Check className="w-2.5 h-2.5" />
+                  </span>
+                ) : (
+                  /* Intentionally left blank so missed days stand out clearly */
+                  <span className="w-4 h-4" aria-label="Missed day" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Growth Graph */}
+        <div className="rounded-2xl bg-[#F4F6F0] border border-[#233428]/10 p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[#4B6B53] font-semibold">
+              <TrendingUp className="w-4 h-4" />
+              <span>Growth Trajectory</span>
+            </div>
+            {activeHover && (
+              <div className="text-xs font-mono text-[#546257] tabular-nums">
+                {activeHover.shortLabel} ·{" "}
+                {activeHover.hasEntry
+                  ? `Score ${activeHover.cumulativeGrowth} (${activeHover.winsCount}W / ${activeHover.resilienceCount}H / ${activeHover.slowdownCount}S)`
+                  : "Blank (No entry)"}
+              </div>
+            )}
+          </div>
+
+          <div className="w-full overflow-hidden">
+            <svg
+              viewBox={`0 0 ${graphWidth} ${graphHeight}`}
+              className="w-full h-36 sm:h-40 overflow-visible"
+              role="img"
+              aria-label="Cumulative Growth Graph"
+            >
+              <defs>
+                <linearGradient id="growthAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#4B6B53" stopOpacity="0.28" />
+                  <stop offset="100%" stopColor="#4B6B53" stopOpacity="0.01" />
+                </linearGradient>
+              </defs>
+
+              {/* Subtle horizontal reference lines */}
+              {[0.25, 0.5, 0.75, 1].map((frac) => {
+                const y = padY + usableH * (1 - frac);
+                return (
+                  <line
+                    key={frac}
+                    x1={padX}
+                    y1={y}
+                    x2={graphWidth - padX}
+                    y2={y}
+                    stroke="rgba(35, 52, 40, 0.08)"
+                    strokeDasharray="3 3"
+                  />
+                );
+              })}
+
+              {/* Baseline */}
+              <line
+                x1={padX}
+                y1={graphHeight - padY}
+                x2={graphWidth - padX}
+                y2={graphHeight - padY}
+                stroke="rgba(35, 52, 40, 0.16)"
+              />
+
+              {/* Area + Line */}
+              {areaPath && <path d={areaPath} fill="url(#growthAreaGrad)" />}
+              {linePath && (
+                <path
+                  d={linePath}
+                  fill="none"
+                  stroke="#4B6B53"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+
+              {/* Data Nodes: Solid sage on recorded days, hollow blank circle on missed days */}
+              {points.map((pt) => (
+                <g
+                  key={pt.data.date}
+                  onMouseEnter={() => setHoveredDay(pt.data)}
+                  className="cursor-pointer"
+                >
+                  <circle cx={pt.x} cy={pt.y} r="10" fill="transparent" />
+                  {pt.data.hasEntry ? (
+                    <circle
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={activeHover?.date === pt.data.date ? 5 : 3.8}
+                      fill="#4B6B53"
+                      stroke="#FFFFFF"
+                      strokeWidth="1.5"
+                    />
+                  ) : (
+                    <circle
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={3}
+                      fill="#F4F6F0"
+                      stroke="rgba(84, 98, 87, 0.4)"
+                      strokeWidth="1.2"
+                    />
+                  )}
+                </g>
+              ))}
+            </svg>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] font-mono text-[#546257] pt-1">
+            <span>{dailySeries[0]?.shortLabel}</span>
+            <span>{dailySeries[Math.floor(dailySeries.length / 2)]?.shortLabel}</span>
+            <span>{dailySeries[dailySeries.length - 1]?.shortLabel}</span>
+          </div>
+        </div>
+
+        {/* Wins Summary */}
+        <div className="space-y-2.5">
+          <h4 className="text-xs font-mono uppercase tracking-wider text-[#546257] flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-[#4B6B53]" />
+            <span>Wins ({cardData.wins.length})</span>
+          </h4>
           {cardData.wins.length === 0 ? (
-            <div className="p-4 bg-earth-50 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left border border-earth-100">
-              <p className="text-xs text-earth-500 italic">
-                No wins logged yet in this {cardData.totalDaysInPeriod}-day window. Record a check-in to see your wins!
-              </p>
+            <div className="rounded-xl bg-[#F4F6F0] border border-[#233428]/10 p-4 flex items-center justify-between gap-3">
+              <p className="text-xs text-[#546257]">No wins logged in this window yet.</p>
               {onNavigateRecord && (
                 <button
                   type="button"
                   onClick={onNavigateRecord}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sage text-white rounded-lg text-xs font-mono font-medium hover:bg-sage/90 cursor-pointer shrink-0"
+                  className="btn-sage px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer shrink-0"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Record Win Now (&lt;4s)
+                  Record Now
                 </button>
               )}
             </div>
@@ -174,97 +316,49 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
               {cardData.wins.map((win, idx) => (
                 <div
                   key={idx}
-                  className="p-3 bg-earth-50 rounded-xl border border-earth-100 flex items-start gap-2.5"
+                  className="rounded-xl bg-[#F4F6F0] border border-[#233428]/10 px-4 py-2.5 text-sm text-[#1D241F]"
                 >
-                  <span className="text-sage font-bold text-xs mt-0.5">🏆</span>
-                  <p className="text-xs text-earth-900 leading-relaxed font-medium">
-                    {win}
-                  </p>
+                  {win}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* What Slowed You Down & What Caused You to Fall Back */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-terracotta" />
-            <h5 className="text-xs font-mono uppercase tracking-wider text-earth-700 font-bold">
-              What Slowed You Down (Procrastination & Distractions)
-            </h5>
-          </div>
-          
+        {/* Slowdowns */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-mono uppercase tracking-wider text-[#546257] flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#C86F52]" />
+            <span>Slowdowns</span>
+          </h4>
           {cardData.slowdowns.length === 0 || cardData.slowdowns[0] === "No major slowdowns recorded." ? (
-            <p className="text-xs text-earth-600 bg-earth-50 p-3.5 rounded-xl border border-earth-100">
-              No major procrastination or slowdowns recorded for this period. Great focus!
-            </p>
+            <p className="text-xs text-[#546257]">No major slowdowns recorded for this period.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {cardData.slowdowns.map((slowdown, idx) => (
-                <div key={idx} className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200/60 space-y-1.5">
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs text-terracotta mt-0.5">⏳</span>
-                    <p className="text-xs text-earth-900 font-medium leading-relaxed">
-                      {slowdown}
-                    </p>
-                  </div>
+                <div
+                  key={idx}
+                  className="rounded-xl bg-[#C86F52]/10 border border-[#C86F52]/25 p-3 text-xs space-y-1"
+                >
+                  <p className="text-[#1D241F] font-medium">{slowdown}</p>
                   {cardData.slowdownCauses[idx] && (
-                    <div className="pl-5 text-xs text-amber-900/90 leading-relaxed">
-                      <span className="font-semibold text-amber-950">What caused you to fall back: </span>
-                      {cardData.slowdownCauses[idx]}
-                    </div>
+                    <p className="text-[#C86F52]">Cause: {cardData.slowdownCauses[idx]}</p>
                   )}
                 </div>
               ))}
             </div>
           )}
         </div>
-
-        {/* Common Topics */}
-        <div className="space-y-2">
-          <h5 className="text-[10px] font-mono uppercase tracking-widest text-earth-400 font-bold">
-            What Kept Coming Up
-          </h5>
-          <div className="flex flex-wrap gap-2">
-            {cardData.whatRepeated.map((item, idx) => (
-              <span
-                key={idx}
-                className="text-xs font-mono px-3 py-1.5 rounded-xl bg-earth-100 text-earth-800 border border-earth-200"
-              >
-                {item}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Quote in user's own words */}
-        <div className="space-y-2 bg-sage/5 border border-sage/15 p-5 rounded-2xl relative">
-          <Quote className="w-5 h-5 text-sage/30 absolute top-4 right-4" />
-          <h5 className="text-[10px] font-mono uppercase tracking-widest text-sage font-bold">
-            Something You Said
-          </h5>
-          <p className="text-sm font-serif italic text-earth-900 leading-relaxed">
-            "{cardData.userOwnWordsQuote}"
-          </p>
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-earth-100 pt-4 flex flex-col sm:flex-row justify-between items-center text-[10px] font-mono text-earth-400 gap-2">
-          <span>Lumina • Simple Daily Growth & Wins</span>
-          <span>Updated {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-        </div>
       </div>
 
-      {/* Export / Print Actions */}
-      <div className="flex items-center justify-end gap-3 print:hidden pt-2">
+      <div className="flex justify-end print:hidden">
         <button
           type="button"
-          onClick={handlePrint}
-          className="px-4 py-2.5 bg-earth-900 hover:bg-earth-800 text-earth-50 rounded-xl text-xs font-mono font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+          onClick={() => window.print()}
+          className="btn-sage min-h-[40px] px-4 py-2 rounded-xl text-xs font-mono uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer"
         >
           <Printer className="w-4 h-4" />
-          Print / Save as PDF
+          <span>Print / Save PDF</span>
         </button>
       </div>
     </div>

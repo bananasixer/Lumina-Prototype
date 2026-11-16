@@ -1,82 +1,127 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", Georgia, serif;
-  --font-display: "Space Grotesk", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
-  --color-earth-50: #fbf9f6;   /* Warm Alabaster/Linen */
-  --color-earth-100: #f4efe6;  /* Soft Warm Sand */
-  --color-earth-200: #eae4d8;  /* Linen-Stone Border */
-  --color-earth-300: #d6cbd2;  /* Clay Pebble */
-  --color-earth-400: #a8998c;  /* Muted Taupe */
-  --color-earth-500: #8a7c70;  /* Dry Clay */
-  --color-earth-600: #6c6259;  /* Clay Slate Text */
-  --color-earth-700: #544c45;  /* Deep Oak */
-  --color-earth-800: #38322e;  /* Warm Charcoal */
-  --color-earth-900: #231c16;  /* Rich Espresso Black */
+  --font-display: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-terracotta: #c86f52;      /* Heartfelt Warm Terracotta Clay */
-  --color-terracotta-hover: #b45a3d;
-  
-  --color-sage: #627560;            /* Grounded Sage Green for Resilience */
-  --color-sage-light: #eff3ee;
-  
-  --color-gold-ochre: #d2a15c;      /* Soft Organic Gold */
-}
+  /* Light Earthy Sage & Warm Linen Palette */
+  --color-earth-50: #F8F9F5;
+  --color-earth-100: #EFF2EA;
+  --color-earth-200: #DCE2D5;
+  --color-earth-300: #BFC9B8;
+  --color-earth-600: #546257;
+  --color-earth-900: #1D241F;
 
-@layer utilities {
-  .earth-shadow {
-    box-shadow: 0 4px 20px -2px rgba(35, 28, 22, 0.04), 0 2px 8px -1px rgba(35, 28, 22, 0.03);
-  }
-  .earth-shadow-hover {
-    box-shadow: 0 12px 28px -4px rgba(35, 28, 22, 0.08), 0 4px 12px -2px rgba(35, 28, 22, 0.05);
-  }
-  .gold-glow {
-    box-shadow: 0 0 30px rgba(210, 161, 92, 0.15);
-  }
-  .terracotta-glow {
-    box-shadow: 0 0 30px rgba(200, 111, 82, 0.15);
-  }
-  .breathing-pulsate {
-    animation: breathing 3.5s ease-in-out infinite;
-  }
-  .active-pulsate {
-    animation: active-pulse 1.8s ease-in-out infinite;
-  }
-}
+  --color-sage: #4B6B53;
+  --color-sage-deep: #3A5541;
+  --color-sage-soft: #E5ECE5;
 
-@keyframes breathing {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(200, 111, 82, 0.15);
-  }
-  50% {
-    transform: scale(1.04);
-    box-shadow: 0 0 25px 8px rgba(200, 111, 82, 0.3);
-  }
-}
-
-@keyframes active-pulse {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(98, 117, 96, 0.4);
-  }
-  70% {
-    transform: scale(1.06);
-    box-shadow: 0 0 0 12px rgba(98, 117, 96, 0);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(98, 117, 96, 0);
-  }
+  --color-terracotta: #C86F52;
+  --color-sand: #E8DFD1;
 }
 
 body {
-  background-color: #fbf9f6;
-  color: #231c16;
+  background: linear-gradient(155deg, #F9FAF6 0%, #F2F5ED 52%, #EBF0E4 100%);
+  background-attachment: fixed;
+  color: #1D241F;
   font-family: var(--font-sans);
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(35, 52, 40, 0.11);
+    box-shadow: 0 4px 20px -4px rgba(29, 36, 31, 0.05), 0 1px 3px rgba(29, 36, 31, 0.03);
+  }
+
+  .glass-panel-strong {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(35, 52, 40, 0.14);
+    box-shadow: 0 12px 32px -8px rgba(29, 36, 31, 0.08);
+  }
+
+  .glass-card-hover {
+    transition: background-color 200ms ease, border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+  }
+
+  .glass-card-hover:hover {
+    background: rgba(255, 255, 255, 0.94);
+    border-color: rgba(75, 107, 83, 0.3);
+    box-shadow: 0 10px 26px -6px rgba(29, 36, 31, 0.08);
+  }
+
+  .glass-input {
+    background: rgba(247, 249, 244, 0.9);
+    border: 1px solid rgba(35, 52, 40, 0.14);
+    color: #1D241F;
+    transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .glass-input:focus {
+    outline: none;
+    background: #FFFFFF;
+    border-color: #4B6B53;
+    box-shadow: 0 0 0 3px rgba(75, 107, 83, 0.15);
+  }
+
+  .btn-sage {
+    background: linear-gradient(180deg, #52745A 0%, #3E5B45 100%);
+    color: #FFFFFF;
+    border: 1px solid rgba(40, 62, 46, 0.25);
+    box-shadow: 0 6px 16px -4px rgba(62, 91, 69, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
+  }
+
+  .btn-sage:hover:not(:disabled) {
+    filter: brightness(1.06);
+    box-shadow: 0 8px 20px -4px rgba(62, 91, 69, 0.4);
+  }
+
+  .btn-sage:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(75, 107, 83, 0.22);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 107, 83, 0.36);
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #1D241F !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  #report-card-printable {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
 }

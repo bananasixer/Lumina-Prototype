@@ -1,165 +1,77 @@
 import React from "react";
-import { Mic, Sparkles, Shield, Bookmark, Award, Layers, Users, TrendingUp } from "lucide-react";
-import { motion } from "motion/react";
+import { Mic, Globe, Shield, Bookmark, TrendingUp } from "lucide-react";
 
 export default function LuminaStory() {
   const steps = [
     {
-      icon: <Mic className="w-5 h-5 text-sage" />,
-      title: "1. Talk (Zero-Friction Vocal Capture)",
-      description: "Speak freely for up to 60 seconds. No typing, editing, or formatting. Simply express your state of play, the fires defused, or the breakthroughs achieved."
+      icon: <Mic className="w-5 h-5 text-[#4B6B53]" />,
+      title: "1. Capture Immediately",
+      description:
+        "Speak freely or type a quick note. Zero timers, prompts, or manual language toggles.",
     },
     {
-      icon: <Sparkles className="w-5 h-5 text-gold-ochre" />,
-      title: "2. Extract (Vocal Crystallization)",
-      description: "Lumina's custom server-side intelligence isolates exactly one 'Small Win' or 'Resilience Point,' summarizing key facts and emotional resilience."
+      icon: <Globe className="w-5 h-5 text-[#C86F52]" />,
+      title: "2. 95+ Language Auto-Detection",
+      description:
+        "Automatically detects spoken languages and mid-sentence code-switching, extracting a clean takeaway in seconds.",
     },
     {
-      icon: <Shield className="w-5 h-5 text-sage" />,
-      title: "3. Keep (The Private Archive)",
-      description: "Saved entries are permanently committed to your secure, private record. This creates an unassailable record of capability and value."
+      icon: <Shield className="w-5 h-5 text-[#4B6B53]" />,
+      title: "3. Private Record",
+      description:
+        "Every entry stays under your own authenticated record—no social feeds or public profiles.",
     },
     {
-      icon: <Bookmark className="w-5 h-5 text-earth-700" />,
-      title: "4. Pattern (Your Honest Record)",
-      description: "Structured summaries are compiled chronologically. An honest, private record for young people building something on their own with nobody to talk to."
-    }
+      icon: <Bookmark className="w-5 h-5 text-[#C86F52]" />,
+      title: "4. Honest Progress & Growth",
+      description:
+        "Progress cards leave missed days blank and plot your cumulative growth curve honestly.",
+    },
   ];
 
   return (
-    <div className="space-y-16 py-6 max-w-4xl mx-auto px-4" id="lumina-story-section">
-      
-      {/* Hero Section */}
-      <motion.div 
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="text-center space-y-4"
-      >
-        <span className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-sage bg-sage/5 border border-sage/20 px-3 py-1 rounded-full">
-          The Philosophy of Private Reflection
+    <div className="space-y-10 max-w-3xl mx-auto text-left" id="lumina-story-section">
+      <div className="border-b border-[#233428]/10 pb-5 space-y-2">
+        <span className="text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
+          Product Info
         </span>
-        <h1 className="text-3xl md:text-5xl font-serif tracking-tight text-earth-900 mt-2">
-          Redefining Progress in <br />
-          <span className="italic text-sage">Independent Work</span>
-        </h1>
-        <p className="text-earth-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-          Traditional social and professional channels capitalize on noisy alerts and cosmetic feedback. 
-          Lumina believes your actual progress is authored in moments of focused, private effort.
+        <h2 className="text-3xl font-display font-bold text-[#1D241F] tracking-tight">
+          Built for young people building alone.
+        </h2>
+        <p className="text-sm sm:text-base text-[#546257] max-w-2xl leading-relaxed">
+          When you are working independently without a team or co-founder, you do not need artificial cheerleading—you need an accurate record of what you actually shipped.
         </p>
-      </motion.div>
-
-      {/* The 4-Step Loop Section */}
-      <div className="space-y-6">
-        <div className="text-center md:text-left space-y-1">
-          <h2 className="text-xl md:text-2xl font-serif text-earth-900 flex items-center justify-center md:justify-start gap-2.5">
-            <Layers className="w-5 h-5 text-sage" />
-            What Actually Happens
-          </h2>
-          <p className="text-earth-500 text-xs">A frictionless digital conveyor belt that transforms vocal reflection into an honest record.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {steps.map((step, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.08, duration: 0.4 }}
-              className="p-6 bg-white rounded-2xl border border-earth-200 hover:border-sage/20 hover:earth-shadow transition-all duration-300 relative overflow-hidden group"
-            >
-              <div className="flex items-start gap-4">
-                <div className="p-3 bg-earth-50 rounded-xl border border-earth-200 group-hover:bg-earth-100 transition-colors">
-                  {step.icon}
-                </div>
-                <div className="space-y-1 text-left">
-                  <h3 className="font-display font-semibold text-earth-900 text-base group-hover:text-sage transition-colors">
-                    {step.title}
-                  </h3>
-                  <p className="text-earth-600 text-xs leading-relaxed">
-                    {step.description}
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
       </div>
 
-      {/* Manifesto Section */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-        className="p-8 bg-earth-100 rounded-2xl border border-earth-200 text-left relative overflow-hidden"
-      >
-        <span className="text-[10px] font-mono uppercase tracking-widest text-sage">
-          THE MANIFESTO
-        </span>
-        <div className="space-y-6 mt-4">
-          <h3 className="text-xl md:text-2xl font-serif text-earth-900">
-            The Private Reflection Strategy
-          </h3>
-          <div className="space-y-4 text-earth-600 text-sm leading-relaxed font-normal">
-            <p>
-              We are transitioning past the age of information abundance. The scarce asset of our time is depth and focus. In this new dynamic, true value lies in mental clarity, objective self-cataloging, and persistent personal resilience.
-            </p>
-            <p>
-              Lumina acts as your private record. By removing the administrative chore of writing, organizing, or formatting your achievements, you are free to capture moments of accomplishment and agency exactly when they unfold.
-            </p>
-            <p>
-              Whether you handled a difficult conflict, protected a colleague under pressure, or quietly fixed a critical pipeline issue, that is your genuine effort. Lumina extracts, structures, and archives it safely.
-            </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {steps.map((step) => (
+          <div key={step.title} className="glass-panel rounded-2xl p-5 space-y-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#EFF3EC] border border-[#4B6B53]/20 flex items-center justify-center">
+              {step.icon}
+            </div>
+            <h3 className="text-base font-display font-semibold text-[#1D241F]">{step.title}</h3>
+            <p className="text-xs sm:text-sm text-[#546257] leading-relaxed">{step.description}</p>
           </div>
+        ))}
+      </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 border-t border-earth-200">
-            <div className="flex items-center gap-3">
-              <Shield className="w-5 h-5 text-sage flex-shrink-0" />
-              <div>
-                <h4 className="text-xs font-mono text-earth-800 font-semibold uppercase">Total Security</h4>
-                <p className="text-[10px] text-earth-500">Your voice and insights remain absolutely yours.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Users className="w-5 h-5 text-sage flex-shrink-0" />
-              <div>
-                <h4 className="text-xs font-mono text-earth-800 font-semibold uppercase">Zero Vanity Slop</h4>
-                <p className="text-[10px] text-earth-500">No feeds, public profiles, or arbitrary vanity scores.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Award className="w-5 h-5 text-gold-ochre flex-shrink-0" />
-              <div>
-                <h4 className="text-xs font-mono text-earth-800 font-semibold uppercase">Value Preservation</h4>
-                <p className="text-[10px] text-earth-500">Convert micro-moments into personal proof.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* About Us section */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start border-t border-earth-200 pt-10 text-left">
-        <div className="md:col-span-7 space-y-4">
-          <span className="text-xs font-mono uppercase tracking-wider text-sage">OUR VISION</span>
-          <h3 className="text-2xl font-serif text-earth-900">About Lumina</h3>
-          <p className="text-earth-600 text-sm leading-relaxed">
-            Lumina is built solo by a 16-year-old student in Pakistan: Muhammad Yahya Amar. There is no company, no team and no investors behind it. We believe software should respect human psychology rather than commodify attention through psychological hacks.
-          </p>
-          <p className="text-earth-500 text-xs">
-            We operate out of strict privacy protocols, and our entire pipeline is designed around user privacy. We do not sell, rent, or leverage your reflections for general model training.
+      <div className="glass-panel rounded-3xl p-6 sm:p-7 grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+        <div className="md:col-span-7 space-y-2.5">
+          <span className="text-xs font-mono uppercase tracking-widest text-[#C86F52]">
+            About the Builder
+          </span>
+          <h3 className="text-xl font-display font-bold text-[#1D241F]">Muhammad Yahya Amar</h3>
+          <p className="text-sm text-[#546257] leading-relaxed">
+            Lumina is built solo by 16-year-old student Muhammad Yahya Amar in Pakistan for young people building something on their own with nobody to talk to.
           </p>
         </div>
-        <div className="md:col-span-5 bg-white p-6 rounded-2xl border border-earth-200 space-y-4 earth-shadow">
-          <h4 className="text-xs font-mono text-sage uppercase tracking-widest flex items-center gap-2 font-semibold">
-            <TrendingUp className="w-4 h-4" /> Building Alone
-          </h4>
-          <blockquote className="text-earth-700 text-xs italic border-l-2 border-sage pl-4 py-1.5 leading-relaxed">
-            "When you're building something on your own with nobody to talk to, you don't need artificial cheerleading or corporate reviews. You need an honest, quiet record of what you actually did."
-          </blockquote>
-          <p className="text-[10px] text-earth-400 font-mono">
-            — Built for young people building alone
+        <div className="md:col-span-5 rounded-2xl bg-[#F4F6F0] border border-[#233428]/10 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-mono uppercase text-[#4B6B53]">
+            <TrendingUp className="w-4 h-4" />
+            <span>Why It Matters</span>
+          </div>
+          <p className="text-xs text-[#1D241F] italic leading-relaxed">
+            &ldquo;When you build alone, memory gets distorted by tired nights. An honest voice record keeps the truth intact.&rdquo;
           </p>
         </div>
       </div>
