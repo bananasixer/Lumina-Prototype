@@ -1,18 +1,17 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { extractCategorySegments } from "./src/utils/extractCategories";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-// Enable large JSON payloads for base64 audio recordings & uploads
 app.use(express.json({ limit: "50mb" }));
 
-// In-memory log of parental notices (for audit and verification)
 const parentalNoticeLogs: Array<{
   type: "welcome" | "crisis_alert";
   parentEmail: string;
@@ -21,19 +20,18 @@ const parentalNoticeLogs: Array<{
   message: string;
 }> = [];
 
-// Initialize Gemini Client
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY environment variable is required");
+    throw new Error("GEMINI_API_KEY_MISSING");
   }
   return new GoogleGenAI({
     apiKey,
     httpOptions: {
       headers: {
         "User-Agent": "aistudio-build",
-      }
-    }
+      },
+    },
   });
 };
 
@@ -52,6 +50,195 @@ const parseGeminiJson = (responseText: string) => {
     }
     throw new Error("Could not parse structured response from engine");
   }
+};
+
+// Local speech correction & misspelling/wrong-word fixer (resilient fallback when free API quota is unavailable)
+const refineSpeechLocally = (rawText: string): string => {
+  let text = (rawText || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const wordFixes: Array<[RegExp, string]> = [
+    [/\bteh\b/gi, "the"],
+    [/\bhte\b/gi, "the"],
+    [/\brecieve\b/gi, "receive"],
+    [/\bseperate\b/gi, "separate"],
+    [/\bdefinitly\b/gi, "definitely"],
+    [/\bdefinately\b/gi, "definitely"],
+    [/\boccured\b/gi, "occurred"],
+    [/\buntill\b/gi, "until"],
+    [/\bwierd\b/gi, "weird"],
+    [/\balot\b/gi, "a lot"],
+    [/\bim\b/gi, "I'm"],
+    [/\bidk\b/gi, "I don't know"],
+    [/\bdont\b/gi, "don't"],
+    [/\bdidnt\b/gi, "didn't"],
+    [/\bdoesnt\b/gi, "doesn't"],
+    [/\bcant\b/gi, "can't"],
+    [/\bwont\b/gi, "won't"],
+    [/\bwasnt\b/gi, "wasn't"],
+    [/\bisnt\b/gi, "isn't"],
+    [/\bcouldnt\b/gi, "couldn't"],
+    [/\bwouldnt\b/gi, "wouldn't"],
+    [/\bshouldnt\b/gi, "shouldn't"],
+    [/\bi\b/g, "I"],
+    [/\bloose focus\b/gi, "lose focus"],
+    [/\bloose track\b/gi, "lose track"],
+    [/\bloose time\b/gi, "lose time"],
+    [/\bthere own\b/gi, "their own"],
+    [/\btheir was\b/gi, "there was"],
+    [/\btheir were\b/gi, "there were"],
+    [/\btheir is\b/gi, "there is"],
+    [/\btheir are\b/gi, "there are"],
+    [/\byour welcome\b/gi, "you're welcome"],
+    [/\byour right\b/gi, "you're right"],
+    [/\bpeace of mind\b/gi, "peace of mind"],
+    [/\bbrake time\b/gi, "break time"],
+    [/\bweather or not\b/gi, "whether or not"],
+    [/\bsuppose to\b/gi, "supposed to"],
+    [/\buse to\b/gi, "used to"],
+    [/\bi done\b/gi, "I finished"],
+    [/\bbuilded\b/gi, "built"],
+    [/\bwrited\b/gi, "wrote"],
+    [/\bmaked\b/gi, "made"],
+  ];
+
+  for (const [pattern, replacement] of wordFixes) {
+    text = text.replace(pattern, replacement);
+  }
+
+  // Split overly long run-on spoken phrases before contrast markers if missing punctuation
+  text = text.replace(/\s+(however|although)\s+/gi, ". $1 ");
+  text = text.replace(/([^.!?])\s+(later today|after that|on the other hand)\s+/gi, "$1. $2 ");
+
+  // Capitalize sentences cleanly and ensure punctuation
+  const sentences = text
+    .split(/(?<=[.!?۔])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const capitalized = s.charAt(0).toUpperCase() + s.slice(1);
+      return /[.!?۔]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+    });
+
+  return sentences.join(" ");
+};
+
+// Free local fallback analyzer & exact category extractor
+const analyzeLocally = (rawText: string) => {
+  const text = refineSpeechLocally(rawText);
+  const lower = text.toLowerCase();
+
+  const hasUrduScript = /[\u0600-\u06FF]/.test(text);
+  const romanUrduTokens = [
+    "aaj", "kaam", "gaya", "gayi", "nahi", "karna", "kiya", "aur", "tha", "thi",
+    "hai", "hain", "mein", "hum", "mera", "meri", "mere", "bohot", "bahut",
+    "mushkil", "waqt", "shukriya", "kya", "lekin", "phir", "abhi", "yeh", "woh",
+    "bhi", "sab", "acha", "theek", "banaya", "mukammal", "seekha", "parha",
+    "susti", "pareshan", "masla", "kal", "raat", "subah", "dil", "apna"
+  ];
+  const words = lower.split(/[\s,.;!?]+/).filter(Boolean);
+  const romanHits = words.filter((w) => romanUrduTokens.includes(w)).length;
+  const hasEnglishWords = words.some(
+    (w) => /^[a-z]{2,}$/.test(w) && !romanUrduTokens.includes(w)
+  );
+
+  let detectedLanguage = "English";
+  if (hasUrduScript && hasEnglishWords) {
+    detectedLanguage = "Urdu · English";
+  } else if (hasUrduScript) {
+    detectedLanguage = "Urdu";
+  } else if (romanHits >= 2 && hasEnglishWords) {
+    detectedLanguage = "Urdu · English";
+  } else if (romanHits >= 2) {
+    detectedLanguage = "Urdu";
+  }
+
+  const crisisTerms = [
+    "suicide", "kill myself", "end my life", "self harm", "want to die",
+    "khudkushi", "khud kushi", "marna chahta", "خودکشی", "جان دینا"
+  ];
+  const isCrisis = crisisTerms.some((t) => lower.includes(t));
+
+  const extracted = extractCategorySegments(text);
+
+  let category: "win" | "resilience" | "slowdown" = "win";
+  let slowdownCause: string | null = null;
+
+  if (extracted.winsExtracted.length > 0) {
+    category = "win";
+  } else if (extracted.slowdownsExtracted.length > 0) {
+    category = "slowdown";
+  } else if (extracted.hardMomentsExtracted.length > 0) {
+    category = "resilience";
+  }
+
+  if (extracted.slowdownsExtracted.length > 0) {
+    if (lower.includes("scroll") || lower.includes("phone") || lower.includes("social")) {
+      slowdownCause = "Phone or screen distraction interrupted focus.";
+    } else if (lower.includes("tired") || lower.includes("sleep") || lower.includes("thak")) {
+      slowdownCause = "Low energy or lack of rest slowed momentum.";
+    } else {
+      slowdownCause = "Momentum stalled on the planned task.";
+    }
+  }
+
+  const primaryLine =
+    (category === "win" && extracted.winsExtracted[0]) ||
+    (category === "resilience" && extracted.hardMomentsExtracted[0]) ||
+    (category === "slowdown" && extracted.slowdownsExtracted[0]) ||
+    text.split(/[.!?۔\n]+/).map((s) => s.trim()).find(Boolean) ||
+    text;
+
+  const takeawayWords = primaryLine.split(/\s+/);
+  const win =
+    takeawayWords.length > 18
+      ? `${takeawayWords.slice(0, 17).join(" ")}...`
+      : primaryLine;
+
+  let feedback = "Logged clearly to your private progress record.";
+  if (category === "win") {
+    feedback = `Recorded your progress: "${win}".`;
+  } else if (category === "resilience") {
+    feedback = `Noted the hard moment you worked through.`;
+  } else {
+    feedback = `Noted this slowdown honestly so you can reset on your next step.`;
+  }
+
+  return {
+    detectedLanguage,
+    transcript: text,
+    winsExtracted: extracted.winsExtracted,
+    hardMomentsExtracted: extracted.hardMomentsExtracted,
+    slowdownsExtracted: extracted.slowdownsExtracted,
+    category,
+    win,
+    feedback,
+    slowdownCause,
+    isWin: category === "win",
+    resiliencePoint: category === "resilience",
+    tone: category === "slowdown" ? "reflective" : category === "resilience" ? "steady" : "focused",
+    isGrowthStory: category !== "slowdown",
+    tags: [detectedLanguage.toLowerCase().includes("urdu") ? "urdu" : "english", category],
+    safetyTier: isCrisis ? "crisis" : "standard",
+    isCrisis,
+    crisisResources: isCrisis
+      ? "988 Suicide & Crisis Lifeline (US/CA) · Text HOME to 741741 · Find local helplines at findahelpline.com"
+      : null,
+  };
+};
+
+const isGeminiAuthOrQuotaError = (error: any): boolean => {
+  const msg = typeof error?.message === "string" ? error.message : "";
+  return (
+    msg.includes("GEMINI_API_KEY_MISSING") ||
+    msg.includes("403") ||
+    msg.includes("401") ||
+    msg.includes("429") ||
+    msg.includes("PERMISSION_DENIED") ||
+    msg.includes("API_KEY_INVALID") ||
+    msg.includes("RESOURCE_EXHAUSTED") ||
+    msg.includes("free tier is not available")
+  );
 };
 
 // API route: Parental Notice Dispatch
@@ -76,7 +263,7 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
     parentEmail,
     userEmail,
     timestamp,
-    message
+    message,
   });
 
   res.setHeader("Content-Type", "application/json");
@@ -85,229 +272,314 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
     parentEmail,
     type,
     timestamp,
-    message
+    message,
   });
 });
 
-// API route: Automatic 95+ Language Audio & Text Capture + Analysis
-app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
+// API route: Live While-Speaking Speech-to-Text + AI Sentence Correction & Misspelling/Wrong-Word Fix
+app.post("/api/refine-speech", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail } = req.body;
+    const { text, audio, mimeType } = req.body;
+    let sourceText = typeof text === "string" ? text.trim() : "";
 
-    const effectiveText = (textBackup || liveTranscript || "").trim();
-
-    if (!audio && !effectiveText) {
+    if (!sourceText && !audio) {
       res.setHeader("Content-Type", "application/json");
-      res.status(400).json({ error: "Either audio or text reflection must be provided" });
+      res.json({ refinedText: "", corrected: false });
       return;
     }
 
-    const ai = getGeminiClient();
-    const contents: any[] = [];
+    try {
+      const ai = getGeminiClient();
 
-    const systemPrompt = `
-      You are the automatic multilingual voice transcription and reflection engine for Lumina.
-      
-      AUTOMATIC 95+ LANGUAGE DETECTION & CODE-SWITCHING DIRECTIVE:
-      - Automatically detect the spoken or written language(s) across 95+ languages (including English, Urdu, Arabic, Spanish, French, Mandarin Chinese, Hindi, German, Japanese, Korean, Portuguese, Turkish, Punjabi, Bengali, Russian, Indonesian, etc.) and natural mid-sentence code-switching (e.g., Urdu + English, Spanish + English, Arabic + French).
-      - Set "detectedLanguage" to a crisp human-readable label (e.g. "English", "Urdu", "Urdu · English", "Arabic", "Spanish", "Mandarin", "Japanese", "Hindi · English").
-      - Transcribe accurately in the "transcript" field: preserve the speaker's exact words and meaning faithfully. If spoken in a non-English language or code-switched mix, transcribe naturally in its native or clean readable form without dropping any detail.
-      - Write "win", "feedback", "slowdownCause", and "tags" in clear, everyday English so the user's progress record stays unified and easy to scan.
-
-      CRITICAL PLAIN-LANGUAGE RULE:
-      - NEVER use academic, robotic, or buzzword vocabulary.
-      - Strictly avoid words like "crystallize", "agency", "sovereign", "defused", "locus", "epistemic", "heuristic", "synthesize", "companion", "friction point", "void".
-      - Write in plain, direct, grounded language that someone building alone can read immediately.
-
-      THREE CLEAR CATEGORIES:
-      Classify the entry into ONE of these 3 categories:
-      1. "win" (Default if accomplished or positive progress):
-         The user shipped something, completed work, practiced a skill, fixed an issue, or hit a milestone.
-         Set category="win", isWin=true, resiliencePoint=false.
-      2. "resilience":
-         The user pushed through real difficulty, stress, rejection, or fatigue and stayed steady.
-         Set category="resilience", isWin=false, resiliencePoint=true.
-      3. "slowdown":
-         The user procrastinated, got distracted, lost momentum, or stalled on goals.
-         Set category="slowdown", isWin=false, resiliencePoint=false.
-
-      SLOWDOWN CAUSE:
-      - If category is "slowdown" (or procrastination is described), state in 1 plain sentence what triggered it in "slowdownCause". Otherwise set slowdownCause to null.
-
-      MAIN TAKEAWAY ("win"):
-      - 1 short, specific sentence (max 15 words) stating the real outcome.
-
-      FEEDBACK ("feedback"):
-      - 1 or 2 grounded, direct sentences referencing something specific they actually said. No cheerleading clichés.
-
-      SAFETY TIER:
-      - "standard" for normal work, stress, or venting.
-      - "crisis" ONLY if explicit danger to life or self-harm is stated; set isCrisis=true and provide crisisResources ("988 Suicide & Crisis Lifeline (US/CA) · Text HOME to 741741 · Find local helplines at findahelpline.com").
-
-      Return valid JSON matching the schema.
-    `;
-
-    if (pastEntries && Array.isArray(pastEntries) && pastEntries.length > 0) {
-      contents.push({
-        text: `RECENT CONTEXT (max 4):\n${JSON.stringify(pastEntries.slice(0, 4))}`
-      });
-    }
-
-    if (userAge) {
-      contents.push({
-        text: `USER AGE: ${userAge}`
-      });
-    }
-
-    // Prioritize real audio whenever present so multilingual speech & mid-sentence code-switching
-    // are accurately auto-detected directly by Gemini rather than browser SpeechRecognition
-    if (audio) {
-      contents.push({
-        inlineData: {
-          data: audio,
-          mimeType: mimeType || "audio/webm",
-        },
-      });
-      contents.push({
-        text: systemPrompt + (effectiveText
-          ? `\nBrowser live preview hint (may be partial or single-language, trust the actual audio above): "${effectiveText}"`
-          : "\nListen carefully, auto-detect the spoken language(s), transcribe verbatim, and return the JSON result.")
-      });
-    } else {
-      contents.push({
-        text: systemPrompt + `\nAuto-detect the language(s) and analyze this written entry:\n"${effectiveText}"`
-      });
-    }
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents,
-      config: {
-        thinkingConfig: {
-          thinkingBudget: 0
-        },
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            detectedLanguage: { type: "STRING" },
-            transcript: { type: "STRING" },
-            category: { type: "STRING" },
-            win: { type: "STRING" },
-            feedback: { type: "STRING" },
-            slowdownCause: { type: "STRING" },
-            isWin: { type: "BOOLEAN" },
-            resiliencePoint: { type: "BOOLEAN" },
-            tone: { type: "STRING" },
-            isGrowthStory: { type: "BOOLEAN" },
-            toneEvolution: { type: "STRING" },
-            tags: {
-              type: "ARRAY",
-              items: { type: "STRING" }
-            },
-            safetyTier: { type: "STRING" },
-            pauseOffer: { type: "STRING" },
-            isCrisis: { type: "BOOLEAN" },
-            crisisResources: { type: "STRING" },
-            parentAlertTriggered: { type: "BOOLEAN" },
-            patternObservation: { type: "STRING" }
+      // Convert live audio chunk to text first when browser speech text is missing
+      if (audio && !sourceText) {
+        const transcribeResp = await ai.models.generateContent({
+          model: "gemini-3.5-transcribe",
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || "audio/webm",
+                  data: audio,
+                },
+              },
+              {
+                text: "Transcribe this spoken audio accurately in its spoken language. Return only the spoken text.",
+              },
+            ],
           },
-          required: ["detectedLanguage", "transcript", "category", "win", "feedback", "isWin", "resiliencePoint", "tone", "tags", "safetyTier", "isCrisis"]
+        });
+        sourceText = (transcribeResp.text || "").trim();
+      }
+
+      if (!sourceText) {
+        res.setHeader("Content-Type", "application/json");
+        res.json({ refinedText: "", corrected: false });
+        return;
+      }
+
+      // Run live spoken text through Gemini AI to fix misspellings, replace misheard/wrong words,
+      // and form complete sensible sentences without changing what the speaker meant.
+      const refineResp = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents: [
+          {
+            text: `You clean up live speech-to-text while a user is speaking.
+Rules:
+1. Detect and fix any misspellings or wrong/misheard words (e.g., homophones or speech-recognition mistakes that don't fit the sentence context) using surrounding meaning.
+2. Add clean sentence structure, punctuation, capitalization, and light natural phrasing where fragmented so every sentence makes clear sense.
+3. Preserve the speaker's actual ideas, names, numbers, and original language (English, Urdu, or mixed) without adding unrelated content.
+Return valid JSON: { "refinedText": string }.
+
+LIVE SPEECH TEXT:
+"""
+${sourceText}
+"""`,
+          },
+        ],
+        config: {
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MINIMAL,
+          },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              refinedText: { type: Type.STRING },
+            },
+            required: ["refinedText"],
+          },
+        },
+      });
+
+      const parsed = parseGeminiJson(refineResp.text || "{}");
+      const refinedText = (parsed?.refinedText || sourceText).trim();
+      res.setHeader("Content-Type", "application/json");
+      res.json({
+        refinedText,
+        corrected: refinedText !== sourceText,
+      });
+      return;
+    } catch (geminiErr: any) {
+      if (isGeminiAuthOrQuotaError(geminiErr)) {
+        const locallyFixed = refineSpeechLocally(sourceText);
+        res.setHeader("Content-Type", "application/json");
+        res.json({
+          refinedText: locallyFixed,
+          corrected: locallyFixed !== sourceText,
+        });
+        return;
+      }
+      throw geminiErr;
+    }
+  } catch (error: any) {
+    console.error("Error in /api/refine-speech:", error);
+    res.setHeader("Content-Type", "application/json");
+    res.status(500).json({ error: error.message || "Failed to refine speech." });
+  }
+});
+
+// API route: AI Speech-to-Text (gemini-3.5-transcribe) + AI Sentence/Word Correction & Extraction (gemini-3.1-flash-lite)
+app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail } = req.body;
+    const backupText = (textBackup || liveTranscript || "").trim();
+
+    if (!audio && !backupText) {
+      res.setHeader("Content-Type", "application/json");
+      res.status(400).json({ error: "Either voice audio or text note must be provided." });
+      return;
+    }
+
+    let rawSpokenText = backupText;
+
+    try {
+      const ai = getGeminiClient();
+
+      // Step 1: Convert voice audio to text using gemini-3.5-transcribe
+      if (audio) {
+        const audioPart = {
+          inlineData: {
+            mimeType: mimeType || "audio/webm",
+            data: audio,
+          },
+        };
+
+        const transcriptionResp = await ai.models.generateContent({
+          model: "gemini-3.5-transcribe",
+          contents: {
+            parts: [
+              audioPart,
+              {
+                text: "Transcribe this spoken audio accurately in its spoken language. Preserve exact words, names, and numbers. Return only the spoken text.",
+              },
+            ],
+          },
+        });
+
+        const transcribed = (transcriptionResp.text || "").trim();
+        if (transcribed) {
+          rawSpokenText = transcribed;
         }
       }
-    });
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("Empty response from AI engine");
-    }
+      if (!rawSpokenText) {
+        res.setHeader("Content-Type", "application/json");
+        res.status(422).json({
+          error: "No spoken words were detected in the audio. Please speak clearly or type a quick note.",
+        });
+        return;
+      }
 
-    const parsedResult = parseGeminiJson(responseText);
+      // Step 2: AI cleans misspellings / wrong-word errors, ensures sensible sentence structure,
+      // and extracts ONLY category-specific statements (Wins / Hard Moments / Slowdowns).
+      const systemPrompt = `
+        You are the speech cleanup and reflection organizer for Lumina.
 
-    if (parsedResult.isCrisis && (userAge < 18 || parsedResult.parentAlertTriggered) && parentEmail) {
-      parentalNoticeLogs.push({
-        type: "crisis_alert",
-        parentEmail,
-        timestamp: Date.now(),
-        message: `Crisis alert dispatched. Resources surfaced: ${parsedResult.crisisResources || "988 Lifeline"}`
+        STRICT CORRECTION & EXTRACTION RULES:
+        1. Review the input spoken/written text carefully:
+           - Detect any misspellings or wrong/misheard words (e.g., speech-to-text homophone mistakes that contradict sentence context) and correct them.
+           - Add clear sentence boundaries, punctuation, and natural connecting words only where incomplete so every sentence makes clear, natural sense while keeping the speaker's exact meaning, facts, and language.
+           - Put this corrected, natural version into "transcript".
+        2. Detect the language ("English", "Urdu", or "Urdu · English") in "detectedLanguage".
+        3. Extract ONLY the specific statements belonging to each category directly from the corrected text:
+           - "winsExtracted": Array of ONLY the accomplishments, finished tasks, breakthroughs, or positive progress. Return [] if none.
+           - "hardMomentsExtracted": Array of ONLY the difficulties, stress, fatigue, obstacles, or emotional weight. Return [] if none.
+           - "slowdownsExtracted": Array of ONLY the distractions, procrastination, wasted time, delays, or lost focus. Return [] if none.
+           IMPORTANT: Do NOT put the whole text into these arrays unless the entire text is a single sentence of that category. Extract only the relevant clauses/sentences!
+        4. Set primary "category" to "win", "resilience" (for hard moment), or "slowdown" based on the dominant outcome, and set booleans "isWin" and "resiliencePoint" accordingly.
+        5. Set "win" to 1 concise sentence (max 15 words) summarizing the primary point in plain everyday language.
+        6. Set "slowdownCause" to 1 plain sentence naming what triggered any slowdown, or null if none.
+        7. Set "feedback" to 1 direct grounded sentence referencing something specific the speaker actually said.
+        8. Set "safetyTier" to "standard" normally, or "crisis" ONLY if explicit self-harm or immediate danger to life is stated (set isCrisis=true and provide crisisResources).
+        9. Never use robotic buzzwords like "crystallize", "agency", "sovereign", "locus", "synthesize", or "void".
+
+        Return valid JSON matching the schema.
+      `;
+
+      const contents: any[] = [];
+      if (pastEntries && Array.isArray(pastEntries) && pastEntries.length > 0) {
+        contents.push({
+          text: `RECENT CONTEXT (max 4):\n${JSON.stringify(pastEntries.slice(0, 4))}`,
+        });
+      }
+      if (userAge) {
+        contents.push({ text: `USER AGE: ${userAge}` });
+      }
+      contents.push({
+        text: `${systemPrompt}\n\nUSER SPOKEN/WRITTEN TEXT:\n"""\n${rawSpokenText}\n"""`,
       });
-    }
 
-    res.setHeader("Content-Type", "application/json");
-    res.json(parsedResult);
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents,
+        config: {
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MINIMAL,
+          },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              detectedLanguage: { type: Type.STRING },
+              transcript: { type: Type.STRING },
+              winsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+              hardMomentsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+              slowdownsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+              category: { type: Type.STRING },
+              win: { type: Type.STRING },
+              feedback: { type: Type.STRING },
+              slowdownCause: { type: Type.STRING },
+              isWin: { type: Type.BOOLEAN },
+              resiliencePoint: { type: Type.BOOLEAN },
+              tone: { type: Type.STRING },
+              isGrowthStory: { type: Type.BOOLEAN },
+              toneEvolution: { type: Type.STRING },
+              tags: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              safetyTier: { type: Type.STRING },
+              pauseOffer: { type: Type.STRING },
+              isCrisis: { type: Type.BOOLEAN },
+              crisisResources: { type: Type.STRING },
+              parentAlertTriggered: { type: Type.BOOLEAN },
+              patternObservation: { type: Type.STRING },
+            },
+            required: [
+              "detectedLanguage",
+              "transcript",
+              "winsExtracted",
+              "hardMomentsExtracted",
+              "slowdownsExtracted",
+              "category",
+              "win",
+              "feedback",
+              "isWin",
+              "resiliencePoint",
+              "tone",
+              "tags",
+              "safetyTier",
+              "isCrisis",
+            ],
+          },
+        },
+      });
+
+      const responseText = response.text;
+      if (!responseText) {
+        throw new Error("Empty response from AI engine");
+      }
+
+      const parsedResult = parseGeminiJson(responseText);
+      const correctedTranscript = (parsedResult.transcript || "").trim() || refineSpeechLocally(rawSpokenText);
+      parsedResult.transcript = correctedTranscript;
+
+      // Ensure non-empty deterministic arrays if Gemini missed any
+      if (
+        (!parsedResult.winsExtracted || parsedResult.winsExtracted.length === 0) &&
+        (!parsedResult.hardMomentsExtracted || parsedResult.hardMomentsExtracted.length === 0) &&
+        (!parsedResult.slowdownsExtracted || parsedResult.slowdownsExtracted.length === 0)
+      ) {
+        const localExtracted = extractCategorySegments(correctedTranscript);
+        parsedResult.winsExtracted = localExtracted.winsExtracted;
+        parsedResult.hardMomentsExtracted = localExtracted.hardMomentsExtracted;
+        parsedResult.slowdownsExtracted = localExtracted.slowdownsExtracted;
+      }
+
+      if (parsedResult.isCrisis && (userAge < 18 || parsedResult.parentAlertTriggered) && parentEmail) {
+        parentalNoticeLogs.push({
+          type: "crisis_alert",
+          parentEmail,
+          timestamp: Date.now(),
+          message: `Crisis alert dispatched. Resources surfaced: ${parsedResult.crisisResources || "988 Lifeline"}`,
+        });
+      }
+
+      res.setHeader("Content-Type", "application/json");
+      res.json(parsedResult);
+      return;
+    } catch (geminiErr: any) {
+      if (isGeminiAuthOrQuotaError(geminiErr)) {
+        if (rawSpokenText) {
+          const fallback = analyzeLocally(rawSpokenText);
+          res.setHeader("Content-Type", "application/json");
+          res.json(fallback);
+          return;
+        }
+        res.setHeader("Content-Type", "application/json");
+        res.status(422).json({
+          error: "No spoken words were captured from the microphone. Please speak clearly or type a quick note below.",
+        });
+        return;
+      }
+      throw geminiErr;
+    }
   } catch (error: any) {
     console.error("Error in /api/analyze-audio:", error);
     res.setHeader("Content-Type", "application/json");
     res.status(500).json({
-      error: error.message || "An error occurred while processing the recording"
-    });
-  }
-});
-
-// API route: One-Click Output Transformations (Translate, Summarize, Format)
-app.post("/api/transform-entry", async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    const { text, action, targetLanguage, formatStyle } = req.body;
-
-    if (!text || !text.trim()) {
-      res.setHeader("Content-Type", "application/json");
-      res.status(400).json({ error: "Text content is required for transformation" });
-      return;
-    }
-
-    const ai = getGeminiClient();
-
-    let instruction = "";
-    if (action === "translate") {
-      const lang = (targetLanguage || "English").trim();
-      instruction = `Translate the following text accurately and naturally into ${lang}. Preserve names, numbers, and intent. Return JSON { "result": string, "label": string } where "label" is "Translated to ${lang}".`;
-    } else if (action === "summarize") {
-      instruction = `Write a crisp, factual 2-3 sentence summary capturing the key decisions, outcomes, and facts in the following text. Plain language only. Return JSON { "result": string, "label": string } where "label" is "Executive Summary".`;
-    } else if (action === "format") {
-      const style = formatStyle || "Structured Notes";
-      instruction = `Reformat the following transcript into clean ${style} with concise headings or bullet points and explicit action items if mentioned. Do not invent facts. Return JSON { "result": string, "label": string } where "label" is "${style}".`;
-    } else {
-      res.setHeader("Content-Type", "application/json");
-      res.status(400).json({ error: "Invalid transformation action" });
-      return;
-    }
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          text: `${instruction}\n\nTEXT:\n"""\n${text.trim()}\n"""`
-        }
-      ],
-      config: {
-        thinkingConfig: {
-          thinkingBudget: 0
-        },
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            result: { type: "STRING" },
-            label: { type: "STRING" }
-          },
-          required: ["result", "label"]
-        }
-      }
-    });
-
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("Empty transformation response");
-    }
-
-    const parsed = parseGeminiJson(responseText);
-    res.setHeader("Content-Type", "application/json");
-    res.json(parsed);
-  } catch (error: any) {
-    console.error("Error in /api/transform-entry:", error);
-    res.setHeader("Content-Type", "application/json");
-    res.status(500).json({
-      error: error.message || "Could not transform entry"
+      error: error.message || "Could not process entry. Please try again.",
     });
   }
 });
@@ -318,7 +590,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
-// Vite middleware for development vs static asset serving for production
 const startServer = async () => {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

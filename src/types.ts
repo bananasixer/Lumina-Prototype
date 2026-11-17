@@ -7,7 +7,10 @@ export interface WinEntry {
   category?: "win" | "resilience" | "slowdown";
   isWin?: boolean;
   win: string; // Concise 1-sentence main takeaway
-  transcript: string; // Captured transcript
+  transcript: string; // Captured transcript verbatim
+  winsExtracted?: string[];
+  hardMomentsExtracted?: string[];
+  slowdownsExtracted?: string[];
   detectedLanguage?: string; // Auto-detected spoken/written language(s)
   sourceType?: "voice" | "upload" | "text";
   audioFileName?: string | null;

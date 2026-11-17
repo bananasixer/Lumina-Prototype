@@ -195,7 +195,10 @@ export default function App() {
         slowdownCause: entry.slowdownCause || null,
         isWin: entry.isWin !== undefined ? entry.isWin : !entry.resiliencePoint,
         transcript: entry.transcript,
-        detectedLanguage: entry.detectedLanguage || "Auto-detected",
+        winsExtracted: entry.winsExtracted || [],
+        hardMomentsExtracted: entry.hardMomentsExtracted || [],
+        slowdownsExtracted: entry.slowdownsExtracted || [],
+        detectedLanguage: entry.detectedLanguage || "English",
         sourceType: entry.sourceType || "voice",
         summary: entry.summary || null,
         formattedNotes: entry.formattedNotes || null,
@@ -275,7 +278,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen text-[#1D241F] font-sans flex flex-col selection:bg-[#4B6B53]/20">
+    <div className="min-h-screen bg-[#FFFFFF] text-[#1D1D1F] font-sans flex flex-col selection:bg-[#0F8B8D]/15">
       {showPrivacy ? (
         <PrivacyPolicy
           onBack={() => {
@@ -286,8 +289,8 @@ export default function App() {
       ) : loading ? (
         <div className="flex-1 flex flex-col items-center justify-center space-y-3 min-h-[70vh] relative">
           <GammaWavesBackground />
-          <RefreshCw className="w-6 h-6 text-[#4B6B53] animate-spin relative z-10" />
-          <p className="text-xs font-mono text-[#546257] uppercase tracking-widest relative z-10">
+          <RefreshCw className="w-6 h-6 text-[#0F8B8D] animate-spin relative z-10" />
+          <p className="text-xs font-medium text-[#515154] relative z-10">
             Opening Workspace...
           </p>
         </div>
@@ -306,6 +309,12 @@ export default function App() {
                 setSessionResetKey((k) => k + 1);
               }}
               onOpenMenu={() => setDrawerOpen(true)}
+              navItems={[
+                { label: "Record", onClick: () => setActiveTab("command"), active: activeTab === "command" },
+                { label: "Progress Card", onClick: () => setActiveTab("card"), active: activeTab === "card" },
+                { label: "History", onClick: () => setActiveTab("vault"), active: activeTab === "vault" },
+                { label: "Insights", onClick: () => setActiveTab("insights"), active: activeTab === "insights" },
+              ]}
             />
 
             <SlideOutDrawer
@@ -321,7 +330,7 @@ export default function App() {
               onToggleAutoRecord={handleToggleAutoRecord}
             />
 
-            <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-7 md:py-10">
+            <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 md:py-12">
               <AnimatePresence mode="wait">
                 {activeTab === "command" && (
                   <motion.div
@@ -329,7 +338,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <CommandCenter
                       user={user}
@@ -347,7 +356,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <WinVault entries={entries} onDeleteEntry={handleDeleteEntry} />
                   </motion.div>
@@ -359,7 +368,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <LuminaInsights entries={entries} user={user} />
                   </motion.div>
@@ -371,7 +380,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <DidIWinCard
                       entries={entries}
@@ -387,7 +396,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <SupportedLanguagesView onStartCapture={() => setActiveTab("command")} />
                   </motion.div>
@@ -399,7 +408,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <LuminaStory />
                   </motion.div>
@@ -407,32 +416,32 @@ export default function App() {
               </AnimatePresence>
             </main>
 
-            <footer className="border-t border-[#233428]/10 bg-white/55 py-4 px-4 sm:px-6 mt-auto print:hidden">
-              <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-[#546257]">
+            <footer className="border-t border-[#0F8B8D]/15 bg-[#FFFFFF] py-4 px-4 sm:px-6 mt-auto print:hidden">
+              <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#515154]">
                 <div className="flex items-center gap-2">
                   <LuminaLogo size={20} />
-                  <span>·</span>
+                  <span aria-hidden="true">·</span>
                   <span>Private Record</span>
                 </div>
                 <div className="flex items-center gap-4">
                   <button
                     type="button"
                     onClick={() => setActiveTab("card")}
-                    className="hover:text-[#1D241F] cursor-pointer"
+                    className="hover:text-[#1D1D1F] cursor-pointer"
                   >
                     Progress Card
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab("languages")}
-                    className="hover:text-[#1D241F] cursor-pointer"
+                    className="hover:text-[#1D1D1F] cursor-pointer"
                   >
-                    95+ Languages
+                    Languages
                   </button>
                   <button
                     type="button"
                     onClick={openPrivacy}
-                    className="text-[#4B6B53] hover:underline cursor-pointer"
+                    className="text-[#0F8B8D] hover:underline font-semibold cursor-pointer"
                   >
                     Privacy Policy
                   </button>

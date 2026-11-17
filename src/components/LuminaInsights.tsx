@@ -95,27 +95,23 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
 
   return (
     <div className="space-y-8 max-w-3xl mx-auto text-left" id="lumina-insights-root">
-      <div className="border-b border-[#233428]/10 pb-5 space-y-1">
-        <span className="text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
-          Mirror &amp; Pattern Watch
-        </span>
-        <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D241F] tracking-tight">
+      <div className="border-b border-[#0F8B8D]/15 pb-5 space-y-1">
+        <span className="text-xs font-semibold text-[#0F8B8D]">Mirror &amp; Pattern Watch</span>
+        <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D1D1F] tracking-[-0.025em]">
           Only what you recorded
         </h2>
       </div>
 
       <div
-        className="glass-panel rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5"
+        className="apple-card rounded-[24px] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5"
         id="lumina-mirror-streak-module"
       >
         <div className="space-y-1">
-          <span className="text-xs font-mono uppercase tracking-wider text-[#546257]">
-            Quiet Streak
-          </span>
-          <div className="text-3xl font-display font-bold text-[#1D241F] tabular-nums">
+          <span className="text-xs font-medium text-[#86868B]">Quiet Streak</span>
+          <div className="text-3xl font-display font-bold text-[#1D1D1F] tabular-nums">
             Day {streak}
           </div>
-          <p className="text-xs text-[#546257]">
+          <p className="text-xs text-[#515154]">
             {streak > 0
               ? `${streak} consecutive ${streak === 1 ? "day" : "days"} logged.`
               : "Log a session today to start Day 1."}
@@ -128,13 +124,13 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
             return (
               <div
                 key={dayNum}
-                className={`w-10 h-11 rounded-xl flex flex-col items-center justify-center text-[10px] font-mono tabular-nums border ${
+                className={`w-10 h-11 rounded-[12px] flex flex-col items-center justify-center text-[10px] font-mono tabular-nums border ${
                   isCompleted
-                    ? "bg-[#4B6B53] border-[#4B6B53] text-white font-bold"
-                    : "bg-transparent border-dashed border-[#233428]/20 text-[#546257]/60"
+                    ? "bg-[#0F8B8D] border-[#0F8B8D] text-white font-bold"
+                    : "bg-transparent border-dashed border-[#0F8B8D]/25 text-[#86868B]"
                 }`}
               >
-                <span className="text-[9px] uppercase">D</span>
+                <span className="text-[9px]">D</span>
                 <span className="text-xs font-bold leading-none mt-0.5">{dayNum}</span>
               </div>
             );
@@ -144,55 +140,55 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-display font-semibold text-[#1D241F] flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[#4B6B53]" />
+          <h3 className="text-lg font-display font-semibold text-[#1D1D1F] flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-[#0055FF]" />
             <span>Weekly Mirror</span>
           </h3>
           {weeklyMirror && (
-            <span className="text-xs font-mono text-[#546257] tabular-nums">
+            <span className="text-xs font-mono text-[#86868B] tabular-nums">
               {weeklyMirror.startDate} – {weeklyMirror.endDate}
             </span>
           )}
         </div>
 
         {weeklyMirror ? (
-          <div className="glass-panel rounded-3xl p-5 space-y-2.5">
+          <div className="apple-card rounded-[24px] p-5 space-y-2.5">
             {weeklyMirror.entries.map((entry, idx) => (
               <div
                 key={entry.id || idx}
-                className="rounded-2xl bg-[#F4F6F0] border border-[#233428]/10 p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-2"
+                className="rounded-[16px] apple-well p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-2"
               >
                 <div className="space-y-1">
-                  <p className="text-sm text-[#1D241F] font-medium">{entry.win}</p>
-                  <p className="text-[11px] font-mono text-[#546257]">
+                  <p className="text-sm text-[#1D1D1F] font-medium">{entry.win}</p>
+                  <p className="text-xs text-[#515154]">
                     {[entry.detectedLanguage, entry.tone ? `Tone: ${entry.tone}` : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
                 </div>
-                <span className="text-xs font-mono text-[#546257] shrink-0 tabular-nums">
+                <span className="text-xs font-mono text-[#86868B] shrink-0 tabular-nums">
                   {entry.date}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <div className="glass-panel rounded-3xl p-8 text-center text-xs font-mono text-[#546257]">
+          <div className="apple-card rounded-[24px] p-8 text-center text-xs text-[#86868B]">
             Your Weekly Mirror populates once you log entries.
           </div>
         )}
       </div>
 
-      <div className="space-y-4 border-t border-[#233428]/10 pt-6">
+      <div className="space-y-4 border-t border-[#0F8B8D]/15 pt-6">
         <div className="flex items-center justify-between gap-4">
-          <h3 className="text-lg font-display font-semibold text-[#1D241F] flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[#C86F52]" />
+          <h3 className="text-lg font-display font-semibold text-[#1D1D1F] flex items-center gap-2">
+            <Activity className="w-4 h-4 text-[#C86D44]" />
             <span>Pattern Watch</span>
           </h3>
           <button
             type="button"
             onClick={() => setShowObservations(!showObservations)}
-            className="min-h-[34px] px-3 py-1 rounded-xl bg-white border border-[#233428]/12 text-xs font-mono text-[#546257] hover:text-[#1D241F] inline-flex items-center gap-1.5 cursor-pointer"
+            className="btn-secondary-apple min-h-[38px] px-3.5 py-1 rounded-full text-xs font-medium text-[#515154] hover:text-[#1D1D1F] inline-flex items-center gap-1.5 cursor-pointer"
           >
             {showObservations ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             <span>{showObservations ? "Hide" : "Show"}</span>
@@ -204,21 +200,21 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
             {patternWatch.observations.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {patternWatch.observations.map((obs, idx) => (
-                  <div key={idx} className="glass-panel rounded-2xl p-5 space-y-1.5">
+                  <div key={idx} className="apple-card rounded-[20px] p-5 space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <h4 className="text-sm font-display font-semibold text-[#1D241F]">
+                      <h4 className="text-sm font-display font-semibold text-[#1D1D1F]">
                         {obs.title}
                       </h4>
-                      <span className="text-xs font-mono text-[#C86F52] tabular-nums">
+                      <span className="text-xs font-mono text-[#C86D44] tabular-nums font-medium">
                         {obs.count} days
                       </span>
                     </div>
-                    <p className="text-xs text-[#546257] leading-relaxed">{obs.notes}</p>
+                    <p className="text-xs text-[#515154] leading-relaxed">{obs.notes}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="glass-panel rounded-2xl p-6 text-center text-xs font-mono text-[#546257]">
+              <div className="apple-card rounded-[20px] p-6 text-center text-xs text-[#86868B]">
                 {entries.length < 2
                   ? "Requires at least 2 logged days to evaluate repeating patterns."
                   : "No repeating slowdown patterns detected across days."}

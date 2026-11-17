@@ -67,13 +67,13 @@ export default function SlideOutDrawer({
     { id: "card", label: "Progress Card", icon: <Award className="w-4 h-4" /> },
     { id: "vault", label: "History & Record", icon: <FolderOpen className="w-4 h-4" /> },
     { id: "insights", label: "Mirror & Patterns", icon: <Calendar className="w-4 h-4" /> },
-    { id: "languages", label: "Supported Languages (95+)", icon: <Globe className="w-4 h-4" /> },
+    { id: "languages", label: "Languages", icon: <Globe className="w-4 h-4" /> },
     { id: "story", label: "Product Info", icon: <Info className="w-4 h-4" /> },
   ];
 
   const landingItems: Array<{ id: string; label: string; icon: React.ReactNode }> = [
-    { id: "landing-product", label: "Product Info", icon: <Layers className="w-4 h-4" /> },
-    { id: "landing-languages", label: "Supported Languages (95+)", icon: <Globe className="w-4 h-4" /> },
+    { id: "landing-product", label: "Capabilities", icon: <Layers className="w-4 h-4" /> },
+    { id: "landing-languages", label: "Voice Capture", icon: <Globe className="w-4 h-4" /> },
     { id: "landing-how-it-works", label: "How It Works", icon: <Sparkles className="w-4 h-4" /> },
     { id: "landing-use-cases", label: "Use Cases", icon: <Compass className="w-4 h-4" /> },
   ];
@@ -88,39 +88,45 @@ export default function SlideOutDrawer({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
             onClick={onClose}
-            className="fixed inset-0 bg-[#1D241F]/25 backdrop-blur-xs z-50"
+            className="fixed inset-0 bg-[#1D1D1F]/20 backdrop-blur-[2px] z-50"
           />
 
           <motion.aside
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 380, damping: 36 }}
-            className="fixed top-0 right-0 bottom-0 w-full max-w-[320px] glass-panel-strong z-50 flex flex-col border-l border-[#233428]/12 shadow-2xl text-left"
+            transition={{ type: "spring", stiffness: 390, damping: 38 }}
+            className="fixed top-0 right-0 bottom-0 w-full max-w-[330px] liquid-glass-drawer z-50 flex flex-col text-left"
             role="dialog"
             aria-label="Navigation Menu"
           >
-            <div className="px-5 py-4 border-b border-[#233428]/10 flex items-center justify-between">
+            <div className="px-5 h-[60px] border-b border-[#0F8B8D]/15 flex items-center justify-between shrink-0">
               <LuminaLogo size={26} />
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Close menu"
-                className="w-9 h-9 rounded-xl border border-[#233428]/12 bg-[#EFF2EA] hover:bg-[#E2E8DA] text-[#1D241F] flex items-center justify-center transition-colors cursor-pointer"
+                className="w-11 h-11 rounded-full bg-[#EDF7F6] hover:bg-[#DFEFED] border border-[#0F8B8D]/20 text-[#0F8B8D] flex items-center justify-center transition-colors cursor-pointer active:scale-[0.97]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
-              <div className="space-y-1">
-                <div className="px-2 pb-1 text-[11px] font-mono uppercase tracking-widest text-[#546257]">
-                  {mode === "workspace" ? "Workspace" : "Menu"}
+            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+              <div className="space-y-1.5">
+                <div className="px-3 pb-1 text-[11px] font-medium tracking-wide text-[#86868B]">
+                  {mode === "workspace" ? "Workspace" : "Navigation"}
                 </div>
 
                 {mode === "workspace" && onSelectTab ? (
-                  workspaceItems.map((item) => {
+                  workspaceItems.map((item, idx) => {
                     const active = activeTab === item.id;
+                    const idleColor =
+                      idx % 3 === 0
+                        ? "text-[#0F8B8D]"
+                        : idx % 3 === 1
+                        ? "text-[#0055FF]"
+                        : "text-[#C86D44]";
                     return (
                       <button
                         key={item.id}
@@ -129,22 +135,22 @@ export default function SlideOutDrawer({
                           onSelectTab(item.id);
                           onClose();
                         }}
-                        className={`w-full min-h-[42px] px-3.5 py-2 rounded-xl flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer ${
+                        className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl flex items-center gap-3 text-sm transition-colors cursor-pointer whitespace-nowrap ${
                           active
-                            ? "bg-[#4B6B53]/12 border border-[#4B6B53]/30 text-[#1D241F] font-semibold"
-                            : "border border-transparent text-[#546257] hover:text-[#1D241F] hover:bg-[#EFF2EA]"
+                            ? "bg-[#0F8B8D]/[0.11] text-[#0F8B8D] font-semibold"
+                            : "text-[#515154] hover:text-[#1D1D1F] hover:bg-[#EDF7F6] font-medium"
                         }`}
                       >
-                        <span className={active ? "text-[#4B6B53]" : "text-[#546257]"}>
+                        <span className={active ? "text-[#0F8B8D]" : idleColor}>
                           {item.icon}
                         </span>
-                        <span>{item.label}</span>
+                        <span className="truncate">{item.label}</span>
                       </button>
                     );
                   })
                 ) : (
                   <>
-                    {landingItems.map((item) => (
+                    {landingItems.map((item, idx) => (
                       <button
                         key={item.id}
                         type="button"
@@ -152,10 +158,20 @@ export default function SlideOutDrawer({
                           onClose();
                           onScrollSection?.(item.id);
                         }}
-                        className="w-full min-h-[42px] px-3.5 py-2 rounded-xl flex items-center gap-3 text-sm font-medium text-[#546257] hover:text-[#1D241F] hover:bg-[#EFF2EA] transition-colors cursor-pointer"
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl flex items-center gap-3 text-sm font-medium text-[#515154] hover:text-[#1D1D1F] hover:bg-[#EDF7F6] transition-colors cursor-pointer whitespace-nowrap"
                       >
-                        <span className="text-[#4B6B53]">{item.icon}</span>
-                        <span>{item.label}</span>
+                        <span
+                          className={
+                            idx % 3 === 0
+                              ? "text-[#0F8B8D]"
+                              : idx % 3 === 1
+                              ? "text-[#0055FF]"
+                              : "text-[#C86D44]"
+                          }
+                        >
+                          {item.icon}
+                        </span>
+                        <span className="truncate">{item.label}</span>
                       </button>
                     ))}
                     {onOpenApp && (
@@ -165,9 +181,9 @@ export default function SlideOutDrawer({
                           onClose();
                           onOpenApp();
                         }}
-                        className="w-full min-h-[42px] mt-2 px-4 py-2 rounded-xl btn-sage text-sm font-semibold flex items-center justify-between cursor-pointer"
+                        className="w-full min-h-[44px] mt-3 px-4 py-2.5 rounded-xl bg-[#1D1D1F] hover:bg-[#0F8B8D] text-white text-sm font-medium flex items-center justify-between transition-colors cursor-pointer"
                       >
-                        <span>Open App</span>
+                        <span>Sign In</span>
                         <ArrowRight className="w-4 h-4" />
                       </button>
                     )}
@@ -175,48 +191,48 @@ export default function SlideOutDrawer({
                 )}
               </div>
 
-              <div className="space-y-2 border-t border-[#233428]/10 pt-5">
-                <div className="px-2 pb-1 text-[11px] font-mono uppercase tracking-widest text-[#546257] flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>Settings</span>
+              <div className="space-y-2 border-t border-[#0F8B8D]/15 pt-5">
+                <div className="px-3 pb-1 text-[11px] font-medium tracking-wide text-[#86868B] flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-[#0F8B8D]" />
+                  <span>Preferences</span>
                 </div>
 
                 {mode === "workspace" && onToggleAutoRecord && (
-                  <label className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-[#F4F6F0] border border-[#233428]/10 flex items-center justify-between gap-3 cursor-pointer">
-                    <span className="text-xs text-[#1D241F]">Auto-record on open</span>
+                  <label className="w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl bg-[#FFFFFF] border border-[#0F8B8D]/16 flex items-center justify-between gap-3 cursor-pointer">
+                    <span className="text-xs font-medium text-[#1D1D1F]">Auto-record on open</span>
                     <input
                       type="checkbox"
                       checked={autoRecord}
                       onChange={(e) => onToggleAutoRecord(e.target.checked)}
-                      className="w-4 h-4 accent-[#4B6B53] rounded cursor-pointer"
+                      className="w-4 h-4 accent-[#0F8B8D] rounded cursor-pointer"
                     />
                   </label>
                 )}
 
                 {mode === "workspace" && (
-                  <div className="rounded-xl bg-[#F4F6F0] border border-[#233428]/10 overflow-hidden">
+                  <div className="rounded-2xl bg-[#FFFFFF] border border-[#0F8B8D]/16 overflow-hidden">
                     <button
                       type="button"
                       onClick={() => setShowShortcuts(!showShortcuts)}
-                      className="w-full min-h-[42px] px-3.5 py-2 flex items-center justify-between text-xs text-[#1D241F] hover:bg-[#EAEFE3] cursor-pointer"
+                      className="w-full min-h-[44px] px-3.5 py-2 flex items-center justify-between text-xs font-medium text-[#1D1D1F] hover:bg-[#EDF7F6] transition-colors cursor-pointer"
                     >
                       <span className="flex items-center gap-2.5">
-                        <Keyboard className="w-4 h-4 text-[#4B6B53]" />
-                        <span>Shortcuts</span>
+                        <Keyboard className="w-4 h-4 text-[#0055FF]" />
+                        <span>Keyboard Shortcuts</span>
                       </span>
-                      <span className="font-mono text-[11px] text-[#546257]">
+                      <span className="text-[11px] text-[#86868B]">
                         {showShortcuts ? "Hide" : "Show"}
                       </span>
                     </button>
                     {showShortcuts && (
-                      <div className="px-3.5 pb-3 pt-1.5 space-y-1 text-[11px] font-mono text-[#546257] border-t border-[#233428]/10">
+                      <div className="px-3.5 pb-3 pt-2 space-y-1.5 text-[11px] font-mono text-[#515154] border-t border-[#0F8B8D]/12 bg-[#EDF7F6]/70">
                         <div className="flex justify-between">
                           <span>Start / Stop Mic</span>
-                          <span className="text-[#1D241F]">Space</span>
+                          <span className="text-[#1D1D1F] font-semibold">Space</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Close Drawer</span>
-                          <span className="text-[#1D241F]">Esc</span>
+                          <span className="text-[#1D1D1F] font-semibold">Esc</span>
                         </div>
                       </div>
                     )}
@@ -229,21 +245,21 @@ export default function SlideOutDrawer({
                     onClose();
                     onOpenPrivacy();
                   }}
-                  className="w-full min-h-[42px] px-3.5 py-2 rounded-xl flex items-center gap-3 text-xs font-medium text-[#546257] hover:text-[#1D241F] hover:bg-[#EFF2EA] transition-colors cursor-pointer"
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-2xl flex items-center gap-3 text-xs font-medium text-[#515154] hover:text-[#1D1D1F] hover:bg-[#EDF7F6] transition-colors cursor-pointer"
                 >
-                  <Shield className="w-4 h-4 text-[#4B6B53]" />
+                  <Shield className="w-4 h-4 text-[#0F8B8D]" />
                   <span>Privacy Policy</span>
                 </button>
               </div>
             </div>
 
             {mode === "workspace" && user && (
-              <div className="p-4 border-t border-[#233428]/10 bg-[#F4F6F0]/80 space-y-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[#1D241F] truncate">
+              <div className="p-4 border-t border-[#0F8B8D]/15 bg-[#EDF7F6]/75 space-y-3 shrink-0">
+                <div className="min-w-0 px-1">
+                  <div className="text-sm font-semibold text-[#1D1D1F] truncate">
                     {user.displayName || "Builder"}
                   </div>
-                  <div className="text-[11px] font-mono text-[#546257] truncate">
+                  <div className="text-xs text-[#86868B] truncate">
                     {user.isDemo ? "Guest Session" : user.email || "Signed In"}
                   </div>
                 </div>
@@ -255,9 +271,9 @@ export default function SlideOutDrawer({
                       onLogout();
                     }}
                     id="lumina-logout-btn"
-                    className="w-full min-h-[40px] px-3.5 py-2 rounded-xl bg-white hover:bg-[#C86F52]/10 border border-[#233428]/12 hover:border-[#C86F52]/40 text-xs font-medium text-[#1D241F] flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    className="w-full min-h-[44px] px-4 py-2 rounded-full bg-white hover:bg-[#EDF7F6] border border-[#0F8B8D]/20 text-xs font-medium text-[#1D1D1F] flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.97]"
                   >
-                    <LogOut className="w-4 h-4 text-[#C86F52]" />
+                    <LogOut className="w-4 h-4 text-[#C86D44]" />
                     <span>Sign Out</span>
                   </button>
                 )}

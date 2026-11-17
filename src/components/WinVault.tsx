@@ -6,11 +6,10 @@ import {
   Trash2,
   BookOpen,
   AlertCircle,
-  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { WinEntry } from "../types";
-import EntryActionBar from "./EntryActionBar";
+import { extractCategorySegments } from "../utils/extractCategories";
 
 interface WinVaultProps {
   entries: WinEntry[];
@@ -22,7 +21,6 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
   const [activeFilter, setActiveFilter] = useState<"all" | "wins" | "resilience" | "slowdown">("all");
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -32,6 +30,23 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
       day: "numeric",
       year: "numeric",
     });
+  };
+
+  const getExtractedForEntry = (entry: WinEntry) => {
+    const hasStored =
+      (entry.winsExtracted && entry.winsExtracted.length > 0) ||
+      (entry.hardMomentsExtracted && entry.hardMomentsExtracted.length > 0) ||
+      (entry.slowdownsExtracted && entry.slowdownsExtracted.length > 0);
+
+    if (hasStored) {
+      return {
+        winsExtracted: entry.winsExtracted || [],
+        hardMomentsExtracted: entry.hardMomentsExtracted || [],
+        slowdownsExtracted: entry.slowdownsExtracted || [],
+      };
+    }
+
+    return extractCategorySegments(entry.transcript || entry.win || "");
   };
 
   const filteredEntries = entries.filter((entry) => {
@@ -44,128 +59,98 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
       (entry.detectedLanguage?.toLowerCase() || "").includes(searchLower);
 
     if (!matchesSearch) return false;
+
+    const extracted = getExtractedForEntry(entry);
+
     if (activeFilter === "wins") {
       return (
+        extracted.winsExtracted.length > 0 ||
         entry.category === "win" ||
-        (entry.isWin && !entry.resiliencePoint && entry.category !== "slowdown") ||
-        (!entry.category && !entry.resiliencePoint)
+        (entry.isWin && !entry.resiliencePoint && entry.category !== "slowdown")
       );
     }
     if (activeFilter === "resilience") {
-      return entry.category === "resilience" || (entry.resiliencePoint && entry.category !== "slowdown");
+      return (
+        extracted.hardMomentsExtracted.length > 0 ||
+        entry.category === "resilience" ||
+        (entry.resiliencePoint && entry.category !== "slowdown")
+      );
     }
     if (activeFilter === "slowdown") {
-      return entry.category === "slowdown" || !!entry.slowdownCause;
+      return (
+        extracted.slowdownsExtracted.length > 0 ||
+        entry.category === "slowdown" ||
+        !!entry.slowdownCause
+      );
     }
     return true;
   });
 
-  const handleDownloadSummary = () => {
-    if (entries.length === 0) {
-      setNotice("Record is empty. Save an entry first to export.");
-      setTimeout(() => setNotice(null), 2400);
-      return;
-    }
-
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      month: "long",
-      year: "numeric",
-    });
-
-    let content = `LUMINA PRIVATE RECORD EXPORT\nPeriod: ${todayStr}\nEntries: ${entries.length}\n\n`;
-    entries.forEach((entry, idx) => {
-      content += `[#${idx + 1}] ${formatDate(entry.date)} · ${
-        entry.category || (entry.resiliencePoint ? "resilience" : "win")
-      } · ${entry.detectedLanguage || "Auto-detected"}\n`;
-      content += `Takeaway: ${entry.win}\n`;
-      content += `Note: ${entry.feedback}\n`;
-      if (entry.transcript) content += `Transcript: ${entry.transcript}\n`;
-      content += `\n---\n\n`;
-    });
-
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Lumina_Record_${todayStr.replace(/\s+/g, "_")}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const winsCount = entries.filter(
-    (e) =>
+  const winsCount = entries.filter((e) => {
+    const ext = getExtractedForEntry(e);
+    return (
+      ext.winsExtracted.length > 0 ||
       e.category === "win" ||
-      (e.isWin && !e.resiliencePoint && e.category !== "slowdown") ||
-      (!e.category && !e.resiliencePoint)
-  ).length;
-  const resilienceCount = entries.filter(
-    (e) => e.category === "resilience" || (e.resiliencePoint && e.category !== "slowdown")
-  ).length;
-  const slowdownCount = entries.filter((e) => e.category === "slowdown" || !!e.slowdownCause).length;
+      (e.isWin && !e.resiliencePoint && e.category !== "slowdown")
+    );
+  }).length;
+  const resilienceCount = entries.filter((e) => {
+    const ext = getExtractedForEntry(e);
+    return (
+      ext.hardMomentsExtracted.length > 0 ||
+      e.category === "resilience" ||
+      (e.resiliencePoint && e.category !== "slowdown")
+    );
+  }).length;
+  const slowdownCount = entries.filter((e) => {
+    const ext = getExtractedForEntry(e);
+    return ext.slowdownsExtracted.length > 0 || e.category === "slowdown" || !!e.slowdownCause;
+  }).length;
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto text-left" id="win-vault-root">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#233428]/10 pb-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-[#4B6B53]">
-            <BookOpen className="w-4 h-4" />
-            <span>History &amp; Record</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D241F] tracking-tight">
-            Your Entries
-          </h2>
-          <p className="text-xs font-mono text-[#546257] tabular-nums">
-            {winsCount} wins · {resilienceCount} hard moments · {slowdownCount} slowdowns
-          </p>
+      <div className="border-b border-[#0F8B8D]/15 pb-5 space-y-1">
+        <div className="flex items-center gap-2 text-xs font-semibold text-[#0F8B8D]">
+          <BookOpen className="w-4 h-4 text-[#0F8B8D]" />
+          <span>History &amp; Record</span>
         </div>
-
-        <button
-          type="button"
-          onClick={handleDownloadSummary}
-          className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white hover:bg-[#EFF2EA] border border-[#233428]/12 text-xs font-mono uppercase tracking-wider text-[#1D241F] inline-flex items-center gap-2 cursor-pointer shrink-0 self-start md:self-auto"
-        >
-          <Download className="w-3.5 h-3.5 text-[#4B6B53]" />
-          <span>Export All</span>
-        </button>
+        <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D1D1F] tracking-[-0.025em]">
+          Your Entries
+        </h2>
+        <p className="text-xs text-[#86868B] tabular-nums">
+          {winsCount} wins · {resilienceCount} hard moments · {slowdownCount} slowdowns
+        </p>
       </div>
-
-      {notice && (
-        <div className="glass-panel rounded-xl px-4 py-2.5 text-xs font-mono text-[#4B6B53]">
-          {notice}
-        </div>
-      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-[#546257] absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-[#86868B] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search transcripts, takeaways, languages..."
-            className="glass-input w-full rounded-xl pl-10 pr-4 py-2.5 text-sm"
+            placeholder="Search wins, hard moments, slowdowns..."
+            className="apple-input w-full min-h-[44px] rounded-[14px] pl-10 pr-4 py-2.5 text-sm"
           />
         </div>
 
-        <div className="flex flex-wrap gap-1 glass-panel p-1 rounded-xl self-start sm:self-auto">
+        <div className="flex flex-wrap gap-1 bg-[#EDF7F6] p-1 rounded-[14px] self-start sm:self-auto border border-[#0F8B8D]/15">
           {(
             [
-              { id: "all", label: "All" },
-              { id: "wins", label: "Wins" },
-              { id: "resilience", label: "Hard Moments" },
-              { id: "slowdown", label: "Slowdowns" },
+              { id: "all", label: "All", activeText: "text-[#0F8B8D]" },
+              { id: "wins", label: "Wins", activeText: "text-[#0055FF]" },
+              { id: "resilience", label: "Hard Moments", activeText: "text-[#0F8B8D]" },
+              { id: "slowdown", label: "Slowdowns", activeText: "text-[#C86D44]" },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[36px] px-3 py-1 rounded-[10px] text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                 activeFilter === tab.id
-                  ? "bg-[#4B6B53] text-white font-medium"
-                  : "text-[#546257] hover:text-[#1D241F]"
+                  ? `bg-[#FFFFFF] ${tab.activeText} font-semibold shadow-xs`
+                  : "text-[#515154] hover:text-[#1D1D1F]"
               }`}
             >
               {tab.label}
@@ -175,10 +160,10 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
       </div>
 
       {filteredEntries.length === 0 ? (
-        <div className="glass-panel rounded-3xl p-10 text-center space-y-2">
-          <AlertCircle className="w-7 h-7 text-[#546257]/50 mx-auto" />
-          <h3 className="text-base font-display font-semibold text-[#1D241F]">No entries yet</h3>
-          <p className="text-xs text-[#546257] max-w-xs mx-auto">
+        <div className="apple-card rounded-[24px] p-10 text-center space-y-2">
+          <AlertCircle className="w-7 h-7 text-[#86868B] mx-auto" />
+          <h3 className="text-base font-display font-semibold text-[#1D1D1F]">No entries match</h3>
+          <p className="text-xs text-[#515154] max-w-xs mx-auto">
             {searchTerm
               ? "Try another search keyword or clear your filter."
               : "Record a voice note to populate your history."}
@@ -189,8 +174,31 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
           <AnimatePresence initial={false}>
             {filteredEntries.map((entry) => {
               const isExpanded = expandedCardId === entry.id;
+              const extracted = getExtractedForEntry(entry);
+
+              const displayedItems =
+                activeFilter === "wins"
+                  ? extracted.winsExtracted.length > 0
+                    ? extracted.winsExtracted
+                    : [entry.win]
+                  : activeFilter === "resilience"
+                  ? extracted.hardMomentsExtracted.length > 0
+                    ? extracted.hardMomentsExtracted
+                    : [entry.win]
+                  : activeFilter === "slowdown"
+                  ? extracted.slowdownsExtracted.length > 0
+                    ? extracted.slowdownsExtracted
+                    : [entry.win]
+                  : [entry.win];
+
               const categoryLabel =
-                entry.category === "slowdown" || (!entry.category && entry.slowdownCause)
+                activeFilter === "wins"
+                  ? "Win"
+                  : activeFilter === "resilience"
+                  ? "Hard Moment"
+                  : activeFilter === "slowdown"
+                  ? "Slowed Down"
+                  : entry.category === "slowdown" || (!entry.category && entry.slowdownCause)
                   ? "Slowed Down"
                   : entry.category === "resilience" || (!entry.category && entry.resiliencePoint)
                   ? "Hard Moment"
@@ -202,49 +210,51 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                  className="glass-panel glass-card-hover rounded-2xl p-5 space-y-3"
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="apple-card apple-card-hover rounded-[24px] p-5 sm:p-6 space-y-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-[#546257]">
-                      <span className="text-[#1D241F] font-medium">{formatDate(entry.date)}</span>
-                      <span>·</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#515154]">
+                      <span className="text-[#1D1D1F] font-medium tabular-nums">
+                        {formatDate(entry.date)}
+                      </span>
+                      <span aria-hidden="true">·</span>
                       <span
                         className={
                           categoryLabel === "Slowed Down"
-                            ? "text-[#C86F52]"
+                            ? "text-[#C86D44] font-semibold"
                             : categoryLabel === "Hard Moment"
-                            ? "text-[#4B6B53]"
-                            : "text-[#4B6B53] font-semibold"
+                            ? "text-[#0F8B8D] font-semibold"
+                            : "text-[#0055FF] font-semibold"
                         }
                       >
                         {categoryLabel}
                       </span>
-                      {entry.detectedLanguage && (
+                      {entry.detectedLanguage && entry.detectedLanguage !== "Auto-detected" && (
                         <>
-                          <span>·</span>
-                          <span>{entry.detectedLanguage}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-[#86868B]">{entry.detectedLanguage}</span>
                         </>
                       )}
                     </div>
 
                     <div className="flex items-center gap-1">
                       {confirmDeleteId === entry.id ? (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
                               onDeleteEntry(entry.id);
                               setConfirmDeleteId(null);
                             }}
-                            className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#C86F52] text-white text-[11px] font-mono cursor-pointer"
+                            className="min-h-[34px] px-3 py-1 rounded-full bg-[#C86D44] text-white text-xs font-medium cursor-pointer"
                           >
                             Delete
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(null)}
-                            className="min-h-[30px] px-2 py-1 rounded-lg bg-[#EFF2EA] text-[11px] font-mono text-[#546257] cursor-pointer"
+                            className="min-h-[34px] px-3 py-1 rounded-full bg-[#F4F7F6] text-xs font-medium text-[#515154] cursor-pointer"
                           >
                             Cancel
                           </button>
@@ -254,7 +264,7 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                           type="button"
                           onClick={() => setConfirmDeleteId(entry.id)}
                           aria-label="Delete entry"
-                          className="w-8 h-8 rounded-lg hover:bg-[#EFF2EA] text-[#546257] hover:text-[#C86F52] flex items-center justify-center transition-colors cursor-pointer"
+                          className="w-9 h-9 rounded-full hover:bg-[#F4F7F6] text-[#86868B] hover:text-[#C86D44] flex items-center justify-center transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -262,48 +272,48 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                     </div>
                   </div>
 
-                  <p className="text-base font-display font-medium text-[#1D241F] leading-snug">
-                    {entry.win}
-                  </p>
+                  {displayedItems.length === 1 ? (
+                    <p className="text-base font-display font-semibold text-[#1D1D1F] leading-snug">
+                      {displayedItems[0]}
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {displayedItems.map((line, i) => (
+                        <li
+                          key={i}
+                          className="text-sm sm:text-base font-display font-semibold text-[#1D1D1F] leading-snug"
+                        >
+                          • {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
 
-                  {entry.slowdownCause && (
-                    <p className="text-xs text-[#C86F52] border-l-2 border-[#C86F52]/50 pl-3">
-                      Slowdown trigger: {entry.slowdownCause}
+                  {activeFilter === "slowdown" && entry.slowdownCause && (
+                    <p className="text-xs text-[#C86D44] rounded-[12px] bg-[#C86D44]/[0.06] border border-[#C86D44]/20 px-3 py-2">
+                      Trigger: {entry.slowdownCause}
                     </p>
                   )}
 
                   {entry.transcript && (
-                    <EntryActionBar
-                      text={entry.transcript}
-                      title={entry.win}
-                      date={entry.date}
-                      detectedLanguage={entry.detectedLanguage}
-                      category={entry.category}
-                    />
-                  )}
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCardId(isExpanded ? null : entry.id)}
+                        className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-medium text-[#515154] hover:text-[#0F8B8D] cursor-pointer pt-0.5"
+                      >
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        <span>{isExpanded ? "Hide full spoken text" : "Show full spoken text"}</span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setExpandedCardId(isExpanded ? null : entry.id)}
-                    className="inline-flex items-center gap-1.5 text-xs font-mono text-[#546257] hover:text-[#1D241F] cursor-pointer pt-0.5"
-                  >
-                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    <span>{isExpanded ? "Hide Details" : "View Transcript & Note"}</span>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="pt-3 border-t border-[#233428]/10 space-y-2.5">
-                      {entry.feedback && (
-                        <p className="text-xs sm:text-sm text-[#546257] leading-relaxed">
-                          {entry.feedback}
-                        </p>
+                      {isExpanded && (
+                        <div className="pt-3 border-t border-[#0F8B8D]/15 space-y-2.5">
+                          <p className="text-xs sm:text-sm text-[#1D1D1F] apple-well rounded-[14px] p-3.5 leading-relaxed whitespace-pre-wrap">
+                            {entry.transcript}
+                          </p>
+                        </div>
                       )}
-                      {entry.transcript && (
-                        <p className="text-xs sm:text-sm text-[#1D241F] bg-[#F4F6F0] rounded-xl p-3 border border-[#233428]/10 leading-relaxed whitespace-pre-wrap">
-                          {entry.transcript}
-                        </p>
-                      )}
-                    </div>
+                    </>
                   )}
                 </motion.div>
               );

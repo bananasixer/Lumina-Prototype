@@ -34,7 +34,11 @@ export async function safeApiPost<T = any>(url: string, payload: unknown): Promi
 
       if (!response.ok) {
         if (jsonResult && jsonResult.error) {
-          throw new Error(jsonResult.error);
+          const err = new Error(jsonResult.error) as Error & { nonRetryable?: boolean };
+          if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+            err.nonRetryable = true;
+          }
+          throw err;
         }
         if (
           response.status === 502 ||
@@ -47,7 +51,9 @@ export async function safeApiPost<T = any>(url: string, payload: unknown): Promi
           throw new Error("The server is briefly reconnecting. Retrying...");
         }
         if (response.status === 413) {
-          throw new Error("Audio file exceeds the 24 MB upload limit. Please trim or use a shorter clip.");
+          const err = new Error("Audio file exceeds the 24 MB upload limit. Please trim or use a shorter clip.") as Error & { nonRetryable?: boolean };
+          err.nonRetryable = true;
+          throw err;
         }
         throw new Error(`Request failed (${response.status}).`);
       }
@@ -60,6 +66,7 @@ export async function safeApiPost<T = any>(url: string, payload: unknown): Promi
     } catch (err: any) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (
+        err?.nonRetryable ||
         lastError.message.includes("must be provided") ||
         lastError.message.includes("exceeds the") ||
         lastError.message.includes("Invalid transformation")
