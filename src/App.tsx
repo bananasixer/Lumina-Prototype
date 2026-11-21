@@ -535,36 +535,16 @@ export default function App() {
               </AnimatePresence>
             </main>
 
-            <footer className="border-t border-[#0F8B8D]/15 bg-[#FFFFFF] py-4 px-4 sm:px-6 mt-auto print:hidden">
-              <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#515154]">
-                <div className="flex items-center gap-2">
-                  <LuminaLogo size={20} />
-                  <span aria-hidden="true">·</span>
-                  <span>Private Record</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("card")}
-                    className="hover:text-[#1D1D1F] cursor-pointer"
-                  >
-                    Progress Card
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("languages")}
-                    className="hover:text-[#1D1D1F] cursor-pointer"
-                  >
-                    Languages
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openPrivacy}
-                    className="text-[#0F8B8D] hover:underline font-semibold cursor-pointer"
-                  >
-                    Privacy Policy
-                  </button>
-                </div>
+            <footer className="border-t border-[#0F8B8D]/12 bg-[#FFFFFF]/90 py-1.5 px-4 sm:px-6 mt-auto print:hidden">
+              <div className="max-w-5xl mx-auto flex items-center justify-between text-[11px] text-[#515154]">
+                <LuminaLogo size={20} className="!text-[13px]" />
+                <button
+                  type="button"
+                  onClick={openPrivacy}
+                  className="text-[#0F8B8D] hover:underline font-medium cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
               </div>
             </footer>
           </div>

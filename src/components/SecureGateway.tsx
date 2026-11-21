@@ -792,44 +792,16 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
           </section>
         </main>
 
-        <footer className="border-t border-[#0F8B8D]/12 bg-white/80 backdrop-blur-md">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#515154]">
-            <div className="flex items-center gap-2.5">
-              <LuminaLogo size={20} />
-              <span aria-hidden="true">·</span>
-              <span>Private Voice Record</span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-5">
-              <button
-                type="button"
-                onClick={() => scrollToSection("landing-product")}
-                className="hover:text-[#1D1D1F] cursor-pointer"
-              >
-                Capabilities
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollToSection("landing-how-it-works")}
-                className="hover:text-[#1D1D1F] cursor-pointer"
-              >
-                How It Works
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollToSection("landing-use-cases")}
-                className="hover:text-[#1D1D1F] cursor-pointer"
-              >
-                Use Cases
-              </button>
-              <button
-                type="button"
-                onClick={onOpenPrivacy}
-                className="text-[#0F8B8D] hover:underline font-semibold cursor-pointer"
-              >
-                Privacy Policy
-              </button>
-            </div>
+        <footer className="border-t border-[#0F8B8D]/12 bg-white/85 backdrop-blur-md">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-1.5 flex items-center justify-between text-[11px] text-[#515154]">
+            <LuminaLogo size={20} className="!text-[13px]" />
+            <button
+              type="button"
+              onClick={onOpenPrivacy}
+              className="text-[#0F8B8D] hover:underline font-medium cursor-pointer"
+            >
+              Privacy Policy
+            </button>
           </div>
         </footer>
       </div>
