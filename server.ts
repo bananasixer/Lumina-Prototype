@@ -60,7 +60,7 @@ const normalizeTypographicQuotes = (input: string): string =>
     .replace(/\u2026/g, "...");
 
 const ROMAN_URDU_WORD_RE =
-  /\b(aaj|maine|humne|kaam|mushkil|bohot|bahut|nahi|lekin|aur|tha|thi|thay|hai|hain|kiya|gaya|gayi|waqt|zaya|susti|pareshan|pareshani|thak|thakawat|mukammal|banaya|seekha|parha|kal|raat|subah|masla|khush|khushi|neend|acha|bura|dil|apna|meri|mera|mere|hum|mein|kuch|zyada|pehle|baad|ghanta|bhaga)\b/i;
+  /\b(aaj|maine|main ne|humne|kaam|mushkil|bohot|bahut|boht|nahi|lekin|aur|tha|thi|thay|hai|hain|kiya|gaya|gayi|gaye|waqt|zaya|susti|pareshan|pareshani|thak|thakawat|mukammal|banaya|seekha|parha|kal|raat|subah|masla|khush|khushi|neend|acha|bura|dil|apna|meri|mera|mere|hum|mein|kuch|zyada|pehle|baad|ghanta|ghante|bhaga|khela|kheli|mili|mila|becha|taira|tairaki|daura|paise|kamaye|kamaya|raha|rahi|hua|hui|kyunki|wajah|sab|abhi)\b/i;
 
 const LATIN_FOREIGN_WORD_RE =
   /\b(hoy|pero|muy|trabajo|tengo|estoy|hacer|bueno|malo|día|días|difícil|terminé|corrí|nadar|je|suis|aujourd'hui|avec|pour|très|fait|mais|travail|difficile|ich|habe|heute|sehr|mit|nicht|aber|arbeit|schwer|bugün|çok|ama|ve|bir|iş|zor|eu|hoje|trabalho)\b/i;
@@ -68,9 +68,7 @@ const LATIN_FOREIGN_WORD_RE =
 const NON_ENGLISH_CHAR_RE = /[^\u0000-\u007F]/;
 
 const detectSourceLanguageCode = (text: string, hint?: string): string => {
-  if (hint && hint !== "en" && hint !== "auto") return hint;
   if (/[\u0600-\u06FF]/.test(text)) {
-    // Distinguish Urdu-specific Nastaliq letters from Arabic
     if (/[ٹڈڑئےہیکگںچپژ]/.test(text) || /\b(میں|نے|آج|اور|لیکن|بہت|کام|دن|تھا|کیا|ہوا)\b/.test(text)) {
       return "ur";
     }
@@ -79,11 +77,13 @@ const detectSourceLanguageCode = (text: string, hint?: string): string => {
   if (/[\u0900-\u097F]/.test(text)) return "hi";
   if (/[\u0400-\u04FF]/.test(text)) return "ru";
   if (/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";
+  if (ROMAN_URDU_WORD_RE.test(text)) return "ur";
   if (/\b(hoy|pero|muy|trabajo|tengo|estoy|corrí|después|nadar|difícil|terminé)\b/i.test(text)) return "es";
   if (/\b(aujourd'hui|j'ai|suis|avec|pour|très|travail|difficile)\b/i.test(text)) return "fr";
   if (/\b(ich|habe|heute|sehr|mit|nicht|arbeit|schwer)\b/i.test(text)) return "de";
   if (/\b(bugün|çok|ama|iş|zor|koştum|yüzdüm)\b/i.test(text)) return "tr";
   if (/\b(hoje|muito|trabalho|estou|com)\b/i.test(text)) return "pt";
+  if (hint && hint !== "en" && hint !== "auto") return hint;
   return "auto";
 };
 
@@ -162,30 +162,64 @@ const translateChunkFree = async (chunk: string, sl: string): Promise<string> =>
   return trimmed;
 };
 
-const translateViaFreeGtx = async (rawText: string, sourceLang = "auto"): Promise<string> => {
-  const trimmed = (rawText || "").trim();
-  if (!trimmed) return "";
-  const sl = detectSourceLanguageCode(trimmed, sourceLang);
-
-  if (trimmed.length <= 420) {
-    return translateChunkFree(trimmed, sl);
-  }
-
-  // Split into sentence chunks under 420 chars for MyMemory limit
-  const parts = trimmed.split(/(?<=[.!?۔])\s+/);
+const splitTextForTranslation = (input: string, maxLen = 380): string[] => {
+  const sentences = input.split(/(?<=[.!?۔])\s+|\n+/);
   const chunks: string[] = [];
   let current = "";
-  for (const part of parts) {
-    if ((current + " " + part).trim().length > 420 && current) {
+
+  const pushWordSafe = (segment: string) => {
+    const words = segment.split(/\s+/).filter(Boolean);
+    let piece = "";
+    for (const w of words) {
+      if ((piece + " " + w).trim().length > maxLen && piece) {
+        chunks.push(piece.trim());
+        piece = w;
+      } else {
+        piece = (piece + " " + w).trim();
+      }
+    }
+    if (piece) chunks.push(piece.trim());
+  };
+
+  for (const part of sentences) {
+    const cleanPart = part.trim();
+    if (!cleanPart) continue;
+    if (cleanPart.length > maxLen) {
+      if (current) {
+        chunks.push(current.trim());
+        current = "";
+      }
+      pushWordSafe(cleanPart);
+    } else if ((current + " " + cleanPart).trim().length > maxLen && current) {
       chunks.push(current.trim());
-      current = part;
+      current = cleanPart;
     } else {
-      current = (current + " " + part).trim();
+      current = (current + " " + cleanPart).trim();
     }
   }
   if (current) chunks.push(current.trim());
+  return chunks;
+};
 
-  const translatedParts = await Promise.all(chunks.map((c) => translateChunkFree(c, sl)));
+const translateViaFreeGtx = async (rawText: string, sourceLang = "auto"): Promise<string> => {
+  const trimmed = (rawText || "").trim();
+  if (!trimmed) return "";
+
+  const chunks = splitTextForTranslation(trimmed, 380);
+  const translatedParts = await Promise.all(
+    chunks.map(async (chunk) => {
+      const chunkSl = detectSourceLanguageCode(chunk, sourceLang);
+      let translated = await translateChunkFree(chunk, chunkSl);
+      // If any non-ASCII script still slipped through, retry per detected script
+      if (NON_ENGLISH_CHAR_RE.test(translated)) {
+        const retrySl = detectSourceLanguageCode(translated, chunkSl);
+        if (retrySl !== "auto") {
+          translated = await translateChunkFree(translated, retrySl);
+        }
+      }
+      return translated;
+    })
+  );
   return translatedParts.join(" ").trim();
 };
 
@@ -357,9 +391,11 @@ const polishSimpleEnglish = (rawText: string): string => {
 };
 
 // Deep English grammar, spelling, agreement, and punctuation auto-correction via LanguageTool
-const autoCorrectEnglishWithLanguageTool = async (rawText: string): Promise<string> => {
+const autoCorrectEnglishWithLanguageToolDetailed = async (
+  rawText: string
+): Promise<{ text: string; fixCount: number }> => {
   const input = (rawText || "").trim();
-  if (!input || input.length < 3) return input;
+  if (!input || input.length < 3) return { text: input, fixCount: 0 };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -377,15 +413,15 @@ const autoCorrectEnglishWithLanguageTool = async (rawText: string): Promise<stri
       body,
       signal: controller.signal,
     });
-    if (!response.ok) return input;
+    if (!response.ok) return { text: input, fixCount: 0 };
     const data: any = await response.json();
     const matches = Array.isArray(data?.matches) ? data.matches : [];
-    if (matches.length === 0) return input;
+    if (matches.length === 0) return { text: input, fixCount: 0 };
 
-    // Apply non-overlapping top-ranked suggestions from end to start so string offsets stay valid
     const sorted = [...matches].sort((a, b) => (b.offset || 0) - (a.offset || 0));
     let fixed = input;
     let lastStart = fixed.length + 1;
+    let fixCount = 0;
 
     for (const match of sorted) {
       const offset = Number(match?.offset);
@@ -399,62 +435,151 @@ const autoCorrectEnglishWithLanguageTool = async (rawText: string): Promise<stri
       ) {
         continue;
       }
-      // Preserve intentional casual proper nouns unless obvious spelling/grammar rule
       const issueType = match?.rule?.issueType;
       if (issueType === "style" && matches.length > 8) continue;
 
-      fixed = fixed.slice(0, offset) + topReplacement + fixed.slice(offset + length);
+      const beforeSlice = fixed.slice(offset, offset + length);
+      if (beforeSlice !== topReplacement) {
+        fixed = fixed.slice(0, offset) + topReplacement + fixed.slice(offset + length);
+        fixCount += 1;
+      }
       lastStart = offset;
     }
 
-    return fixed.replace(/\s+/g, " ").trim() || input;
+    return { text: fixed.replace(/\s+/g, " ").trim() || input, fixCount };
   } catch {
-    return input;
+    return { text: input, fixCount: 0 };
   } finally {
     clearTimeout(timeout);
   }
 };
 
-const translateToSimpleEnglish = async (
+const translateToSimpleEnglishDetailed = async (
   rawText: string,
   sourceLang = "auto"
-): Promise<string> => {
+): Promise<{ text: string; ltFixCount: number; wasTranslated: boolean }> => {
   const input = (rawText || "").trim();
-  if (!input) return "";
+  if (!input) return { text: "", ltFixCount: 0, wasTranslated: false };
 
   let working = input;
-
-  // Step 1: Pre-clean phonetic/Roman-Urdu patterns if present, or translate whole native-script / foreign text
-  if (
+  const shouldTranslate =
     NON_ENGLISH_CHAR_RE.test(working) ||
     LATIN_FOREIGN_WORD_RE.test(working) ||
-    (sourceLang && sourceLang !== "en" && sourceLang !== "auto" && !ROMAN_URDU_WORD_RE.test(working))
-  ) {
+    ROMAN_URDU_WORD_RE.test(working) ||
+    Boolean(sourceLang && sourceLang !== "en" && sourceLang !== "auto");
+
+  let wasTranslated = false;
+
+  if (shouldTranslate) {
     const translated = await translateViaFreeGtx(working, sourceLang);
-    if (translated) {
+    if (translated && translated.trim()) {
+      wasTranslated = translated.trim() !== working;
       working = translated;
     }
-  } else if (ROMAN_URDU_WORD_RE.test(working)) {
-    working = applyRomanUrduAndSpellingFixes(working);
-    if (needsServerTranslation(working)) {
-      const translated = await translateViaFreeGtx(working, "auto");
-      if (translated) working = translated;
+    // Fallback Roman Urdu cleanup only if non-English Roman tokens still remained untranslated
+    if (ROMAN_URDU_WORD_RE.test(working) || NON_ENGLISH_CHAR_RE.test(working)) {
+      working = applyRomanUrduAndSpellingFixes(working);
+      if (needsServerTranslation(working)) {
+        const secondPass = await translateViaFreeGtx(working, "auto");
+        if (secondPass && secondPass.trim()) {
+          working = secondPass;
+          wasTranslated = true;
+        }
+      }
     }
   }
 
-  // Step 2: Smooth common spoken/translated phrasing slips before deep grammar check
+  // Smooth spoken idioms and phrasing before grammar check
+  const beforePolish = working;
   working = polishSimpleEnglish(working);
+  const localFixCount = beforePolish.toLowerCase() !== working.toLowerCase() ? 1 : 0;
 
-  // Step 3: Deep English grammar, spelling, tense, and punctuation auto-correction
-  working = await autoCorrectEnglishWithLanguageTool(working);
+  // Deep English grammar, spelling, tense, and punctuation auto-correction
+  const ltResult = await autoCorrectEnglishWithLanguageToolDetailed(working);
+  working = ltResult.text;
 
-  // Step 4: Final sentence capitalization & punctuation guarantee
-  return polishSimpleEnglish(working);
+  return {
+    text: polishSimpleEnglish(working),
+    ltFixCount: ltResult.fixCount + localFixCount,
+    wasTranslated,
+  };
+};
+
+const translateToSimpleEnglish = async (rawText: string, sourceLang = "auto"): Promise<string> => {
+  const res = await translateToSimpleEnglishDetailed(rawText, sourceLang);
+  return res.text;
+};
+
+const computeConfidenceScore = ({
+  rawInput,
+  cleanEnglish,
+  ltFixCount,
+  wasTranslated,
+  wasAiVerified,
+  extractedCount,
+}: {
+  rawInput: string;
+  cleanEnglish: string;
+  ltFixCount: number;
+  wasTranslated: boolean;
+  wasAiVerified: boolean;
+  extractedCount: number;
+}): { confidenceScore: number; confidenceLabel: string } => {
+  const words = cleanEnglish.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return { confidenceScore: 76, confidenceLabel: "Needs review" };
+  }
+
+  let score = wasAiVerified ? 98 : 96;
+  const stillHasNonAscii = NON_ENGLISH_CHAR_RE.test(cleanEnglish);
+  const stillHasRomanUrdu = ROMAN_URDU_WORD_RE.test(cleanEnglish);
+
+  if (wasTranslated) {
+    score -= 3;
+  }
+  if (ltFixCount > 0) {
+    score -= Math.min(14, ltFixCount * 2);
+  }
+  if (words.length < 4) {
+    score -= 7;
+  } else if (words.length < 8) {
+    score -= 2;
+  } else if (words.length >= 14 && extractedCount >= 2) {
+    score += 1;
+  }
+  if (stillHasNonAscii) score -= 18;
+  if (stillHasRomanUrdu) score -= 10;
+
+  const clamped = Math.max(72, Math.min(99, Math.round(score)));
+  const confidenceLabel =
+    clamped >= 94
+      ? "Clear & verified in English"
+      : clamped >= 86
+      ? "Translated & corrected"
+      : "Reviewed in English";
+
+  return { confidenceScore: clamped, confidenceLabel };
+};
+
+const mergeUniqueStrings = (primary: string[], secondary: string[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...primary, ...secondary]) {
+    const clean = (raw || "").trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase().replace(/[.!?]+$/, "");
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(clean);
+    }
+  }
+  return out;
 };
 
 // Free local fallback analyzer & exact category extractor (always outputs simple English)
 const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
-  const text = await translateToSimpleEnglish(rawText, sourceLang);
+  const detailed = await translateToSimpleEnglishDetailed(rawText, sourceLang);
+  const text = detailed.text;
   const lower = text.toLowerCase();
 
   const crisisTerms = [
@@ -464,6 +589,19 @@ const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
   const isCrisis = crisisTerms.some((t) => lower.includes(t));
 
   const extracted = extractCategorySegments(text);
+  const extractedCount =
+    extracted.winsExtracted.length +
+    extracted.hardMomentsExtracted.length +
+    extracted.slowdownsExtracted.length;
+
+  const { confidenceScore, confidenceLabel } = computeConfidenceScore({
+    rawInput: rawText,
+    cleanEnglish: text,
+    ltFixCount: detailed.ltFixCount,
+    wasTranslated: detailed.wasTranslated,
+    wasAiVerified: false,
+    extractedCount,
+  });
 
   let category: "win" | "resilience" | "slowdown" = "win";
   let slowdownCause: string | null = null;
@@ -477,31 +615,36 @@ const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
   }
 
   if (extracted.slowdownsExtracted.length > 0) {
-    if (lower.includes("scroll") || lower.includes("phone") || lower.includes("social")) {
-      slowdownCause = "Phone or screen distraction broke your focus.";
+    if (lower.includes("doomscroll") || lower.includes("scroll") || lower.includes("phone") || lower.includes("social")) {
+      slowdownCause = extracted.slowdownsExtracted[0];
     } else if (lower.includes("tired") || lower.includes("sleep")) {
       slowdownCause = "Low energy or lack of sleep slowed you down.";
     } else {
-      slowdownCause = "Something slowed down your planned work.";
+      slowdownCause = extracted.slowdownsExtracted[0];
     }
   }
 
-  const primaryLine =
-    (category === "win" && extracted.winsExtracted[0]) ||
-    (category === "resilience" && extracted.hardMomentsExtracted[0]) ||
-    (category === "slowdown" && extracted.slowdownsExtracted[0]) ||
-    text.split(/[.!?\n]+/).map((s) => s.trim()).find(Boolean) ||
-    text;
+  const allCategoryItems =
+    category === "win"
+      ? extracted.winsExtracted
+      : category === "resilience"
+      ? extracted.hardMomentsExtracted
+      : extracted.slowdownsExtracted;
 
-  const takeawayWords = primaryLine.split(/\s+/);
-  const win =
-    takeawayWords.length > 18
-      ? `${takeawayWords.slice(0, 17).join(" ")}...`
-      : primaryLine;
+  const combinedPrimary =
+    allCategoryItems.length > 1
+      ? allCategoryItems.slice(0, 3).join(" · ")
+      : allCategoryItems[0] ||
+        text.split(/[.!?\n]+/).map((s) => s.trim()).find(Boolean) ||
+        text;
 
-  let feedback = "Saved to your progress record.";
-  if (category === "win") {
-    feedback = `Saved your win: "${win}".`;
+  const win = combinedPrimary;
+
+  let feedback = "Saved to your progress record in simple English.";
+  if (extracted.winsExtracted.length > 0 && extracted.slowdownsExtracted.length > 0) {
+    feedback = `Saved ${extracted.winsExtracted.length} win${extracted.winsExtracted.length > 1 ? "s" : ""} and ${extracted.slowdownsExtracted.length} slowdown${extracted.slowdownsExtracted.length > 1 ? "s" : ""} in English.`;
+  } else if (category === "win") {
+    feedback = `Saved your win${extracted.winsExtracted.length > 1 ? "s" : ""}: "${win}".`;
   } else if (category === "resilience") {
     feedback = "Saved the hard moment you kept going through.";
   } else {
@@ -510,6 +653,8 @@ const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
 
   return {
     detectedLanguage: "English",
+    confidenceScore,
+    confidenceLabel,
     transcript: text,
     winsExtracted: extracted.winsExtracted,
     hardMomentsExtracted: extracted.hardMomentsExtracted,
@@ -518,8 +663,8 @@ const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
     win,
     feedback,
     slowdownCause,
-    isWin: category === "win",
-    resiliencePoint: category === "resilience",
+    isWin: category === "win" || extracted.winsExtracted.length > 0,
+    resiliencePoint: category === "resilience" || extracted.hardMomentsExtracted.length > 0,
     tone: category === "slowdown" ? "reflective" : category === "resilience" ? "steady" : "focused",
     isGrowthStory: category !== "slowdown",
     tags: ["english", category],
@@ -534,13 +679,14 @@ const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
 // Guarantees every field returned from Gemini or fallback is strictly plain, grammar-checked English
 const ensureResultIsEnglish = async (parsed: any, rawFallbackText: string, sourceLang = "auto") => {
   const transcriptSource = (parsed?.transcript || "").trim() || rawFallbackText;
-  const cleanTranscript = await translateToSimpleEnglish(transcriptSource, sourceLang);
+  const detailedTranscript = await translateToSimpleEnglishDetailed(transcriptSource, sourceLang);
+  const cleanTranscript = detailedTranscript.text;
 
   const normalizeField = async (val: string | null | undefined): Promise<string | null> => {
     if (!val || typeof val !== "string") return null;
     const trimmed = val.trim();
     if (!trimmed) return null;
-    return await translateToSimpleEnglish(trimmed, "auto");
+    return await translateToSimpleEnglish(trimmed, sourceLang || "auto");
   };
 
   const normalizeArray = async (arr: unknown): Promise<string[]> => {
@@ -555,20 +701,23 @@ const ensureResultIsEnglish = async (parsed: any, rawFallbackText: string, sourc
     return results;
   };
 
-  let winsExtracted = await normalizeArray(parsed?.winsExtracted);
-  let hardMomentsExtracted = await normalizeArray(parsed?.hardMomentsExtracted);
-  let slowdownsExtracted = await normalizeArray(parsed?.slowdownsExtracted);
+  const localExtracted = extractCategorySegments(cleanTranscript);
+  const winsExtracted = mergeUniqueStrings(
+    await normalizeArray(parsed?.winsExtracted),
+    localExtracted.winsExtracted
+  );
+  const hardMomentsExtracted = mergeUniqueStrings(
+    await normalizeArray(parsed?.hardMomentsExtracted),
+    localExtracted.hardMomentsExtracted
+  );
+  const slowdownsExtracted = mergeUniqueStrings(
+    await normalizeArray(parsed?.slowdownsExtracted),
+    localExtracted.slowdownsExtracted
+  );
 
-  if (winsExtracted.length === 0 && hardMomentsExtracted.length === 0 && slowdownsExtracted.length === 0) {
-    const localExtracted = extractCategorySegments(cleanTranscript);
-    winsExtracted = localExtracted.winsExtracted;
-    hardMomentsExtracted = localExtracted.hardMomentsExtracted;
-    slowdownsExtracted = localExtracted.slowdownsExtracted;
-  }
-
+  const normalizedAiWin = await normalizeField(parsed?.win);
   const cleanWin =
-    (await normalizeField(parsed?.win)) ||
-    winsExtracted[0] ||
+    (winsExtracted.length > 1 ? winsExtracted.slice(0, 3).join(" · ") : normalizedAiWin || winsExtracted[0]) ||
     hardMomentsExtracted[0] ||
     slowdownsExtracted[0] ||
     cleanTranscript;
@@ -576,11 +725,31 @@ const ensureResultIsEnglish = async (parsed: any, rawFallbackText: string, sourc
   const cleanFeedback =
     (await normalizeField(parsed?.feedback)) || "Saved to your progress record in simple English.";
 
-  const cleanSlowdownCause = await normalizeField(parsed?.slowdownCause);
+  const cleanSlowdownCause =
+    (await normalizeField(parsed?.slowdownCause)) || slowdownsExtracted[0] || null;
+  const cleanPatternObs = await normalizeField(parsed?.patternObservation);
+  const cleanToneEvolution = await normalizeField(parsed?.toneEvolution);
+  const cleanBadHabitInsight = await normalizeField(parsed?.badHabitInsight);
+  const cleanBadHabits = await normalizeArray(parsed?.badHabits);
+  const cleanTags = await normalizeArray(parsed?.tags);
+
+  const extractedCount =
+    winsExtracted.length + hardMomentsExtracted.length + slowdownsExtracted.length;
+
+  const { confidenceScore, confidenceLabel } = computeConfidenceScore({
+    rawInput: rawFallbackText,
+    cleanEnglish: cleanTranscript,
+    ltFixCount: detailedTranscript.ltFixCount,
+    wasTranslated: detailedTranscript.wasTranslated || (Boolean(sourceLang) && sourceLang !== "en" && sourceLang !== "auto"),
+    wasAiVerified: true,
+    extractedCount,
+  });
 
   return {
     ...parsed,
     detectedLanguage: "English",
+    confidenceScore,
+    confidenceLabel,
     transcript: cleanTranscript,
     winsExtracted,
     hardMomentsExtracted,
@@ -588,6 +757,11 @@ const ensureResultIsEnglish = async (parsed: any, rawFallbackText: string, sourc
     win: cleanWin,
     feedback: cleanFeedback,
     slowdownCause: cleanSlowdownCause,
+    patternObservation: cleanPatternObs,
+    toneEvolution: cleanToneEvolution,
+    badHabitInsight: cleanBadHabitInsight,
+    badHabits: cleanBadHabits,
+    tags: cleanTags.length > 0 ? cleanTags : ["english"],
   };
 };
 
@@ -808,20 +982,19 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         You are the speech cleanup and reflection organizer for Lumina.
 
         STRICT ENGLISH & SIMPLE WORDING RULES:
-        1. ALWAYS write and store EVERY output field ("transcript", "win", "winsExtracted", "hardMomentsExtracted", "slowdownsExtracted", "feedback", "slowdownCause") in simple, easy-to-understand English—even if the speaker spoke Urdu, Roman Urdu, Arabic, Hindi, Spanish, or any other language.
-        2. Use short, plain, everyday English words that anyone can read easily. Never leave ANY non-English word in the output.
-        3. Detect and fix any misspellings or wrong/misheard words and make sure every sentence makes clear sense. Put this clean English text in "transcript".
-        4. Set "detectedLanguage" to "English".
-        5. Extract ONLY the specific statements belonging to each category directly from the English text:
-           - "winsExtracted": Array of ONLY the wins, finished tasks, or good progress in simple English. Return [] if none.
-           - "hardMomentsExtracted": Array of ONLY the difficulties, hardships, stress, fatigue, or tough problems in simple English. Return [] if none.
-           - "slowdownsExtracted": Array of ONLY the distractions, delays, wasted time, or lost focus in simple English. Return [] if none.
-           IMPORTANT: Do NOT put the whole text into these arrays unless the entire text belongs to one category. Extract only the matching sentences/points!
-        6. Set primary "category" to "win", "resilience" (for hard moment), or "slowdown", and set booleans "isWin" and "resiliencePoint" accordingly.
-        7. Set "win" to 1 short, easy sentence (max 15 words) in plain English.
-        8. Set "slowdownCause" to 1 plain English sentence naming what slowed them down, or null if none.
-        9. Set "feedback" to 1 simple, friendly English sentence mentioning what the speaker shared.
-        10. Set "safetyTier" to "standard" normally, or "crisis" ONLY if explicit self-harm or immediate danger is stated (set isCrisis=true and provide crisisResources).
+        1. ALWAYS translate and write EVERY SINGLE word across EVERY output field ("transcript", "win", "winsExtracted", "hardMomentsExtracted", "slowdownsExtracted", "feedback", "slowdownCause", "patternObservation", "toneEvolution", "badHabitInsight", "badHabits", "tags") into simple, everyday English—even if the user spoke Urdu, Roman Urdu, Arabic, Hindi, Spanish, or mixed English + another language. Never leave ANY non-English phrase anywhere.
+        2. Detect and fix any misspellings or wrong/misheard words using full sentence context, and put the complete translated + corrected English version of everything the user shared in "transcript".
+        3. Set "detectedLanguage" to "English".
+        4. Extract ALL points mentioned anywhere in the text (not only the first sentence!) into the exact matching categories:
+           - "winsExtracted": Array of EVERY win, accomplishment, workout/sport (e.g. swimming, running, football), sale/earning (e.g. $10 sale), finished task, or progress point in simple English. Return [] if none.
+           - "hardMomentsExtracted": Array of EVERY difficulty, hardship, stress, fatigue, or tough problem in simple English. Return [] if none.
+           - "slowdownsExtracted": Array of EVERY distraction, doomscrolling, delay, wasted time, or slowdown mentioned in simple English. Return [] if none.
+           IMPORTANT: A single entry often contains multiple wins AND a slowdown (e.g. "I swam 30 min, played football 1 hr, got a $10 sale, and doomscrolled for 2 hours"). Extract ALL 3 wins into winsExtracted AND the doomscrolling into slowdownsExtracted!
+        5. Set primary "category" to "win" (if any wins exist), "resilience" (if hard moment without wins), or "slowdown", and set booleans "isWin" and "resiliencePoint" accordingly.
+        6. Set "win" to a clear, plain-English summary covering all wins (or main takeaway) in <= 20 words.
+        7. Set "slowdownCause" to 1 plain English sentence naming what slowed them down whenever slowdownsExtracted is non-empty, or null if none.
+        8. Set "feedback" to 1 simple, friendly English sentence mentioning what the speaker shared.
+        9. Set "safetyTier" to "standard" normally, or "crisis" ONLY if explicit self-harm or immediate danger is stated (set isCrisis=true and provide crisisResources).
 
         Return valid JSON matching the schema.
       `;
@@ -1071,6 +1244,85 @@ ${JSON.stringify(
     res.setHeader("Content-Type", "application/json");
     res.status(500).json({ error: error.message || "Could not translate entries." });
   }
+});
+
+const shortLinkCache = new Map<string, string>();
+const toShareableUrl = (url: string) => url.replace("https://ais-dev-", "https://ais-pre-");
+const DEFAULT_SHARED_APP_URL = toShareableUrl(
+  process.env.SHARED_APP_URL ||
+    process.env.APP_URL ||
+    "https://ais-pre-pysbhc7doz2yxoi5ztofkr-451678381807.asia-southeast1.run.app"
+);
+
+const verifyRedirectTarget = async (shortUrl: string, expectedTarget: string): Promise<boolean> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const resp = await fetch(shortUrl, { method: "HEAD", redirect: "manual", signal: controller.signal });
+    if (resp.status >= 300 && resp.status < 400) {
+      const loc = resp.headers.get("location") || "";
+      return loc.startsWith(expectedTarget);
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const shortenUrlWithTimeout = async (
+  endpoint: string,
+  expectedTarget: string,
+  timeoutMs = 5000
+): Promise<string | null> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(endpoint, { method: "GET", signal: controller.signal });
+    if (!resp.ok) return null;
+    const text = (await resp.text()).trim();
+    if (/^https?:\/\/\S+$/i.test(text)) {
+      const valid = await verifyRedirectTarget(text, expectedTarget);
+      return valid ? text : null;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// API route: Shortened, shareable link for mobile home-screen shortcuts
+app.get("/api/short-link", async (req: express.Request, res: express.Response): Promise<void> => {
+  const requestedUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+  const isShareableOrigin =
+    /^https:\/\/[^/]+/i.test(requestedUrl) &&
+    !requestedUrl.includes("localhost") &&
+    !requestedUrl.includes("127.0.0.1");
+
+  const targetUrl = (isShareableOrigin ? toShareableUrl(requestedUrl) : DEFAULT_SHARED_APP_URL).replace(/\/+$/, "");
+
+  const cached = shortLinkCache.get(targetUrl);
+  if (cached) {
+    res.setHeader("Content-Type", "application/json");
+    res.json({ shortUrl: cached, targetUrl });
+    return;
+  }
+
+  const encoded = encodeURIComponent(targetUrl);
+  const shortUrl =
+    (await shortenUrlWithTimeout(`https://tinyurl.com/api-create.php?url=${encoded}`, targetUrl)) ||
+    (await shortenUrlWithTimeout(`https://clck.ru/--?url=${encoded}`, targetUrl)) ||
+    targetUrl;
+
+  if (shortUrl !== targetUrl) {
+    shortLinkCache.set(targetUrl, shortUrl);
+  }
+
+  res.setHeader("Content-Type", "application/json");
+  res.json({ shortUrl, targetUrl });
 });
 
 // Serve health status

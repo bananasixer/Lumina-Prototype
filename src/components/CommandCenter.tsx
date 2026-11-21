@@ -9,6 +9,7 @@ import {
   Check,
   Edit3,
   ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserSession, WinEntry } from "../types";
@@ -37,6 +38,8 @@ interface CommandCenterProps {
 
 interface AnalysisResult {
   detectedLanguage?: string;
+  confidenceScore?: number;
+  confidenceLabel?: string;
   transcript: string;
   winsExtracted?: string[];
   hardMomentsExtracted?: string[];
@@ -455,21 +458,27 @@ export default function CommandCenter({
         parentEmail: user.parentEmail,
       });
 
+      const mergeUnique = (primary: string[] = [], secondary: string[] = []) => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const raw of [...primary, ...secondary]) {
+          const clean = (raw || "").trim();
+          if (!clean) continue;
+          const key = clean.toLowerCase().replace(/[.!?]+$/, "");
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(clean);
+          }
+        }
+        return out;
+      };
+
       const extracted = extractCategorySegments(data.transcript || currentPending.capturedText);
       const enriched: AnalysisResult = {
         ...data,
-        winsExtracted:
-          data.winsExtracted && data.winsExtracted.length > 0
-            ? data.winsExtracted
-            : extracted.winsExtracted,
-        hardMomentsExtracted:
-          data.hardMomentsExtracted && data.hardMomentsExtracted.length > 0
-            ? data.hardMomentsExtracted
-            : extracted.hardMomentsExtracted,
-        slowdownsExtracted:
-          data.slowdownsExtracted && data.slowdownsExtracted.length > 0
-            ? data.slowdownsExtracted
-            : extracted.slowdownsExtracted,
+        winsExtracted: mergeUnique(data.winsExtracted, extracted.winsExtracted),
+        hardMomentsExtracted: mergeUnique(data.hardMomentsExtracted, extracted.hardMomentsExtracted),
+        slowdownsExtracted: mergeUnique(data.slowdownsExtracted, extracted.slowdownsExtracted),
       };
 
       const initialCat: "win" | "resilience" | "slowdown" =
@@ -530,21 +539,27 @@ export default function CommandCenter({
         parentEmail: user.parentEmail,
       });
 
+      const mergeUnique = (primary: string[] = [], secondary: string[] = []) => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const raw of [...primary, ...secondary]) {
+          const clean = (raw || "").trim();
+          if (!clean) continue;
+          const key = clean.toLowerCase().replace(/[.!?]+$/, "");
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(clean);
+          }
+        }
+        return out;
+      };
+
       const extracted = extractCategorySegments(data.transcript || typedText.trim());
       const enriched: AnalysisResult = {
         ...data,
-        winsExtracted:
-          data.winsExtracted && data.winsExtracted.length > 0
-            ? data.winsExtracted
-            : extracted.winsExtracted,
-        hardMomentsExtracted:
-          data.hardMomentsExtracted && data.hardMomentsExtracted.length > 0
-            ? data.hardMomentsExtracted
-            : extracted.hardMomentsExtracted,
-        slowdownsExtracted:
-          data.slowdownsExtracted && data.slowdownsExtracted.length > 0
-            ? data.slowdownsExtracted
-            : extracted.slowdownsExtracted,
+        winsExtracted: mergeUnique(data.winsExtracted, extracted.winsExtracted),
+        hardMomentsExtracted: mergeUnique(data.hardMomentsExtracted, extracted.hardMomentsExtracted),
+        slowdownsExtracted: mergeUnique(data.slowdownsExtracted, extracted.slowdownsExtracted),
       };
 
       const initialCat: "win" | "resilience" | "slowdown" =
@@ -576,7 +591,14 @@ export default function CommandCenter({
         ? aiResult.hardMomentsExtracted || []
         : aiResult.slowdownsExtracted || [];
 
-    const primaryTakeaway = activeItems[0] || aiResult.win;
+    const primaryTakeaway =
+      activeItems.length > 1
+        ? activeItems.slice(0, 3).join(" · ")
+        : activeItems[0] || aiResult.win;
+
+    const hasWins = (aiResult.winsExtracted?.length || 0) > 0;
+    const hasHard = (aiResult.hardMomentsExtracted?.length || 0) > 0;
+    const hasSlowdowns = (aiResult.slowdownsExtracted?.length || 0) > 0;
 
     const newEntry: WinEntry = {
       id: Math.random().toString(36).substring(2, 11),
@@ -584,8 +606,8 @@ export default function CommandCenter({
       date: new Date().toISOString().split("T")[0],
       timestamp: Date.now(),
       category: selectedCategory,
-      isWin: isWinOutcome,
-      resiliencePoint: isResilienceOutcome,
+      isWin: isWinOutcome || hasWins,
+      resiliencePoint: isResilienceOutcome || hasHard,
       win: primaryTakeaway,
       transcript: aiResult.transcript,
       winsExtracted: aiResult.winsExtracted || [],
@@ -594,9 +616,13 @@ export default function CommandCenter({
       detectedLanguage: "English",
       sourceType: "voice",
       feedback: aiResult.feedback,
-      slowdownCause: isSlowdownOutcome
-        ? slowdownCause.trim() || aiResult.slowdownCause || "Distraction or stall"
-        : null,
+      slowdownCause:
+        isSlowdownOutcome || hasSlowdowns
+          ? slowdownCause.trim() ||
+            aiResult.slowdownCause ||
+            aiResult.slowdownsExtracted?.[0] ||
+            "Distraction or stall"
+          : null,
       tags: aiResult.tags || [],
       status: topicStatus,
       durationSeconds: recordingDuration,
@@ -750,30 +776,67 @@ export default function CommandCenter({
                   />
                 </div>
 
-                {isProcessing ? (
-                  <div className="rounded-[16px] apple-well p-4 flex items-center justify-center gap-2.5 text-xs font-medium text-[#0F8B8D]">
-                    <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                    <span>{processingStep}</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-                    <button
+                <div className="space-y-2.5 pt-1">
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <motion.button
                       type="button"
                       onClick={handleConfirmProcessAudio}
-                      className="btn-royal flex-1 min-h-[46px] py-2.5 px-5 rounded-full text-sm font-medium inline-flex items-center justify-center gap-2 cursor-pointer"
+                      disabled={isProcessing}
+                      animate={isProcessing ? { scale: [1, 0.99, 1] } : { scale: 1 }}
+                      transition={
+                        isProcessing
+                          ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" }
+                          : { duration: 0.15 }
+                      }
+                      className={`relative overflow-hidden flex-1 min-h-[46px] py-2.5 px-5 rounded-full text-sm font-medium inline-flex items-center justify-center gap-2 transition-all ${
+                        isProcessing
+                          ? "bg-[#EDF7F6] border border-[#0F8B8D]/35 text-[#0F8B8D] cursor-wait"
+                          : "btn-royal cursor-pointer"
+                      }`}
                     >
-                      <Check className="w-4 h-4" />
-                      <span>Okay</span>
-                    </button>
+                      {isProcessing && (
+                        <motion.span
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-[#0F8B8D]/15 to-transparent pointer-events-none"
+                          initial={{ x: "-100%" }}
+                          animate={{ x: "100%" }}
+                          transition={{ duration: 1.35, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      )}
+                      {isProcessing ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin shrink-0 relative z-10" />
+                          <span className="relative z-10 truncate">{processingStep}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Okay</span>
+                        </>
+                      )}
+                    </motion.button>
+
                     <button
                       type="button"
                       onClick={handleRetakeRecording}
-                      className="btn-secondary-apple min-h-[46px] px-5 py-2.5 rounded-full text-xs font-medium text-[#515154] cursor-pointer"
+                      disabled={isProcessing}
+                      className="btn-secondary-apple min-h-[46px] px-5 py-2.5 rounded-full text-xs font-medium text-[#515154] cursor-pointer disabled:opacity-45"
                     >
                       Record Again
                     </button>
                   </div>
-                )}
+
+                  {isProcessing && (
+                    <div className="w-full h-1 rounded-full bg-[#EDF7F6] overflow-hidden">
+                      <motion.div
+                        className="h-full w-1/2 rounded-full bg-gradient-to-r from-[#0F8B8D] via-[#0055FF] to-[#0F8B8D]"
+                        initial={{ x: "-100%" }}
+                        animate={{ x: "220%" }}
+                        transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="apple-card rounded-[24px] p-6 flex flex-col items-center space-y-5 relative overflow-hidden">
@@ -937,10 +1000,19 @@ export default function CommandCenter({
                 type="submit"
                 disabled={isProcessing || !typedText.trim()}
                 aria-label="Send quick note"
-                className="btn-teal min-h-[44px] px-4 py-2 rounded-full text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0"
+                className="btn-teal min-h-[44px] px-4 py-2 rounded-full text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60 shrink-0 transition-all"
               >
-                <span>Log</span>
-                <Send className="w-3.5 h-3.5" />
+                {isProcessing && !pendingAudio ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Log</span>
+                    <Send className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             </form>
           </motion.div>
@@ -953,9 +1025,29 @@ export default function CommandCenter({
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="apple-card rounded-[24px] p-6 space-y-5 text-left"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#0F8B8D]/15 pb-3.5">
-              <div className="text-xs font-semibold text-[#0F8B8D]">
-                {aiResult.detectedLanguage || "English"}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#0F8B8D]/15 pb-3.5">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold text-[#0F8B8D]">
+                  {aiResult.detectedLanguage || "English"}
+                </span>
+
+                <div
+                  className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#EDF7F6] border border-[#0F8B8D]/18"
+                  aria-label="Transcription and English clarity confidence score"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#0F8B8D] shrink-0" />
+                  <span className="text-[11px] font-semibold text-[#1D1D1F] tabular-nums">
+                    {aiResult.confidenceScore ?? 95}% confidence
+                  </span>
+                  <div className="w-12 h-1.5 rounded-full bg-white overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${aiResult.confidenceScore ?? 95}%` }}
+                      transition={{ duration: 0.45, ease: "easeOut" }}
+                      className="h-full rounded-full bg-gradient-to-r from-[#0F8B8D] to-[#0055FF]"
+                    />
+                  </div>
+                </div>
               </div>
 
               <button
@@ -970,9 +1062,24 @@ export default function CommandCenter({
 
             <div className="grid grid-cols-3 gap-2 p-1 rounded-[16px] bg-[#EDF7F6] border border-[#0F8B8D]/15">
               {[
-                { id: "win", label: "Win", activeColor: "text-[#0055FF]" },
-                { id: "resilience", label: "Hard Moment", activeColor: "text-[#0F8B8D]" },
-                { id: "slowdown", label: "Slowed Down", activeColor: "text-[#C86D44]" },
+                {
+                  id: "win",
+                  label: "Win",
+                  count: aiResult.winsExtracted?.length || 0,
+                  activeColor: "text-[#0055FF]",
+                },
+                {
+                  id: "resilience",
+                  label: "Hard Moment",
+                  count: aiResult.hardMomentsExtracted?.length || 0,
+                  activeColor: "text-[#0F8B8D]",
+                },
+                {
+                  id: "slowdown",
+                  label: "Slowed Down",
+                  count: aiResult.slowdownsExtracted?.length || 0,
+                  activeColor: "text-[#C86D44]",
+                },
               ].map((cat) => {
                 const active = selectedCategory === cat.id;
                 return (
@@ -980,13 +1087,16 @@ export default function CommandCenter({
                     key={cat.id}
                     type="button"
                     onClick={() => setSelectedCategory(cat.id as "win" | "resilience" | "slowdown")}
-                    className={`min-h-[40px] px-2.5 py-1.5 rounded-[12px] text-xs font-medium transition-all cursor-pointer ${
+                    className={`min-h-[40px] px-2.5 py-1.5 rounded-[12px] text-xs font-medium transition-all cursor-pointer inline-flex items-center justify-center gap-1 ${
                       active
                         ? `bg-[#FFFFFF] ${cat.activeColor} shadow-xs font-semibold`
                         : "text-[#515154] hover:text-[#1D1D1F]"
                     }`}
                   >
-                    {cat.label}
+                    <span>{cat.label}</span>
+                    {cat.count > 0 && (
+                      <span className="text-[10px] opacity-75 tabular-nums">({cat.count})</span>
+                    )}
                   </button>
                 );
               })}

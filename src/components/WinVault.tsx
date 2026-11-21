@@ -189,6 +189,8 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                   ? extracted.slowdownsExtracted.length > 0
                     ? extracted.slowdownsExtracted
                     : [entry.win]
+                  : extracted.winsExtracted.length > 0
+                  ? extracted.winsExtracted
                   : [entry.win];
 
               const categoryLabel =
@@ -289,11 +291,28 @@ export default function WinVault({ entries, onDeleteEntry }: WinVaultProps) {
                     </ul>
                   )}
 
-                  {activeFilter === "slowdown" && entry.slowdownCause && (
-                    <p className="text-xs text-[#C86D44] rounded-[12px] bg-[#C86D44]/[0.06] border border-[#C86D44]/20 px-3 py-2">
-                      Trigger: {entry.slowdownCause}
-                    </p>
+                  {activeFilter === "all" && extracted.hardMomentsExtracted.length > 0 && categoryLabel !== "Hard Moment" && (
+                    <div className="text-xs text-[#0F8B8D] rounded-[12px] bg-[#0F8B8D]/[0.06] border border-[#0F8B8D]/20 px-3 py-2 space-y-1">
+                      <span className="font-semibold block">Hard Moment</span>
+                      {extracted.hardMomentsExtracted.map((hm, idx) => (
+                        <p key={idx} className="text-[#1D1D1F]">• {hm}</p>
+                      ))}
+                    </div>
                   )}
+
+                  {(activeFilter === "slowdown" || activeFilter === "all") &&
+                    (extracted.slowdownsExtracted.length > 0 || entry.slowdownCause) && (
+                      <div className="text-xs text-[#C86D44] rounded-[12px] bg-[#C86D44]/[0.06] border border-[#C86D44]/20 px-3 py-2 space-y-1">
+                        <span className="font-semibold block">Slowed Down</span>
+                        {extracted.slowdownsExtracted.length > 0 ? (
+                          extracted.slowdownsExtracted.map((sl, idx) => (
+                            <p key={idx} className="text-[#1D1D1F]">• {sl}</p>
+                          ))
+                        ) : (
+                          <p className="text-[#1D1D1F]">{entry.slowdownCause}</p>
+                        )}
+                      </div>
+                    )}
 
                   {entry.transcript && (
                     <>
