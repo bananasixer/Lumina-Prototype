@@ -3,17 +3,34 @@ import { WinEntry } from "../types";
 import {
   generateDidIWinCard,
   getDailyProgressSeries,
+  getCompoundingGrowthSeries,
   DailyProgressPoint,
 } from "../utils/sovereignMetrics";
-import { Printer, Check, Award, Sparkles, Clock, TrendingUp } from "lucide-react";
+import { Printer, Check, Award, Sparkles, Clock, TrendingUp, Flame, Layers } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
 
 interface DidIWinCardProps {
   entries: WinEntry[];
   userName?: string;
+  userCreatedAt?: number;
   onNavigateRecord?: () => void;
 }
 
-export default function DidIWinCard({ entries, userName, onNavigateRecord }: DidIWinCardProps) {
+export default function DidIWinCard({
+  entries,
+  userName,
+  userCreatedAt,
+  onNavigateRecord,
+}: DidIWinCardProps) {
   const getAutoMilestone = (): "3-day" | "7-day" | "14-day" | "30-day" => {
     const uniqueDays = new Set(entries.map((e) => e.date).filter(Boolean)).size;
     if (uniqueDays >= 30) return "30-day";
@@ -38,38 +55,12 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
     () => getDailyProgressSeries(entries, periodDays),
     [entries, periodDays]
   );
+  const compoundingSeries = useMemo(
+    () => getCompoundingGrowthSeries(entries, userCreatedAt),
+    [entries, userCreatedAt]
+  );
 
-  // Compute SVG coordinates for the Growth Graph
-  const graphWidth = 640;
-  const graphHeight = 160;
-  const padX = 24;
-  const padY = 20;
-  const usableW = graphWidth - padX * 2;
-  const usableH = graphHeight - padY * 2;
-  const maxGrowth = Math.max(3, ...dailySeries.map((d) => d.cumulativeGrowth));
-
-  const points = dailySeries.map((d, idx) => {
-    const x =
-      dailySeries.length === 1
-        ? padX + usableW / 2
-        : padX + (idx / (dailySeries.length - 1)) * usableW;
-    const y = padY + usableH - (d.cumulativeGrowth / maxGrowth) * usableH;
-    return { x, y, data: d };
-  });
-
-  const linePath =
-    points.length > 0
-      ? points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ")
-      : "";
-
-  const areaPath =
-    points.length > 0
-      ? `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${(graphHeight - padY).toFixed(
-          1
-        )} L ${points[0].x.toFixed(1)} ${(graphHeight - padY).toFixed(1)} Z`
-      : "";
-
-  const activeHover = hoveredDay || dailySeries[dailySeries.length - 1] || null;
+  const activeHover = hoveredDay;
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto text-left" id="report-card-root">
@@ -118,7 +109,7 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
 
           <div className="flex items-center gap-4 text-xs tabular-nums">
             <div>
-              <span className="text-[#86868B] block text-[11px]">Streak</span>
+              <span className="text-[#86868B] block text-[11px]">Daily Streak</span>
               <span className="text-base font-bold text-[#0055FF]">
                 {cardData.streakCount} {cardData.streakCount === 1 ? "day" : "days"}
               </span>
@@ -136,13 +127,75 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
           </div>
         </div>
 
-        {/* Daily Attendance Strip: Recorded Days Filled, Missed Days Left Blank */}
+        {/* Dedicated Daily Streak Counter for Consecutive Win Days */}
+        <div
+          id="daily-streak-counter"
+          className="rounded-[18px] apple-well p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-[#0F8B8D]/15"
+        >
+          <div className="flex items-center gap-3.5">
+            <div
+              className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 border ${
+                cardData.streakCount > 0
+                  ? "bg-[#C86D44]/[0.10] border-[#C86D44]/25 text-[#C86D44]"
+                  : "bg-[#FFFFFF] border-[#0F8B8D]/15 text-[#86868B]"
+              }`}
+            >
+              <Flame className="w-6 h-6" />
+            </div>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-[#1E4449]">Daily Streak</span>
+                {cardData.wonToday ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0F8B8D]">
+                    <Check className="w-3 h-3" /> Win logged today
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-baseline gap-2 tabular-nums">
+                <span className="text-2xl sm:text-[28px] font-display font-bold text-[#1D1D1F] leading-none">
+                  {cardData.streakCount}
+                </span>
+                <span className="text-xs font-medium text-[#515154]">
+                  consecutive {cardData.streakCount === 1 ? "day" : "days"} recording wins
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-3 sm:pt-0 border-[#0F8B8D]/10">
+            <div className="text-left sm:text-right tabular-nums">
+              <span className="block text-[11px] text-[#86868B]">Best Streak</span>
+              <span className="text-sm font-semibold text-[#0055FF]">
+                {cardData.bestStreak || 0} {(cardData.bestStreak || 0) === 1 ? "day" : "days"}
+              </span>
+            </div>
+            {!cardData.wonToday && onNavigateRecord && (
+              <button
+                type="button"
+                onClick={onNavigateRecord}
+                className="btn-royal min-h-[38px] px-4 py-1.5 rounded-full text-xs font-medium cursor-pointer shrink-0 print:hidden"
+              >
+                {cardData.streakCount > 0 ? "Extend Streak" : "Start Streak"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Daily Check-In: Recorded Days Checked, Missed Days Left Blank */}
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-[#515154]">
             <span className="font-medium text-[#1D1D1F]">
-              Daily Record (Missed days left blank)
+              Daily Check-In (Missed days stay blank)
             </span>
-            <span className="hidden sm:inline text-[#86868B]">Filled = Recorded · Blank = Missed</span>
+            <span className="hidden sm:inline text-[#86868B]">
+              {activeHover
+                ? `${activeHover.shortLabel}: ${
+                    activeHover.hasEntry
+                      ? `${activeHover.winsCount} wins · ${activeHover.resilienceCount} resilience`
+                      : "Missed (0)"
+                  }`
+                : "Checked = Saved · Blank = Missed"}
+            </span>
           </div>
 
           <div
@@ -164,7 +217,7 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
                 onClick={() => setHoveredDay(day)}
                 title={`${day.shortLabel}: ${
                   day.hasEntry
-                    ? `${day.winsCount + day.resilienceCount + day.slowdownCount} logged`
+                    ? `${day.winsCount + day.resilienceCount + day.slowdownCount} saved`
                     : "Missed (blank)"
                 }`}
                 className={`h-14 rounded-[14px] border flex flex-col items-center justify-between py-2 px-1 transition-all cursor-pointer ${
@@ -186,113 +239,163 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
           </div>
         </div>
 
-        {/* Growth Graph (Teal -> Royal Blue -> Terracotta Curve) */}
-        <div className="rounded-[16px] apple-well p-4 sm:p-5 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        {/* Chart 1: Recharts Line Graph - Sentiment, Wins & Resilience Points */}
+        <div
+          id="sentiment-trend-chart"
+          className="rounded-[16px] apple-well p-4 sm:p-5 space-y-3"
+        >
+          <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-[#0F8B8D]">
               <TrendingUp className="w-4 h-4 text-[#0F8B8D]" />
-              <span>Growth Trajectory</span>
+              <span>Sentiment, Wins &amp; Resilience Trend</span>
             </div>
-            {activeHover && (
-              <div className="text-xs font-mono text-[#515154] tabular-nums">
-                {activeHover.shortLabel} ·{" "}
-                {activeHover.hasEntry
-                  ? `Score ${activeHover.cumulativeGrowth} (${activeHover.winsCount}W / ${activeHover.resilienceCount}H / ${activeHover.slowdownCount}S)`
-                  : "Blank (No entry)"}
-              </div>
-            )}
+            <p className="text-[11px] text-[#86868B] mt-0.5">
+              Spikes on days you record · Returns to 0 when you skip a day
+            </p>
           </div>
 
-          <div className="w-full overflow-hidden">
-            <svg
-              viewBox={`0 0 ${graphWidth} ${graphHeight}`}
-              className="w-full h-36 sm:h-40 overflow-visible"
-              role="img"
-              aria-label="Cumulative Growth Graph"
-            >
-              <defs>
-                <linearGradient id="growthLineGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#0F8B8D" />
-                  <stop offset="60%" stopColor="#0055FF" />
-                  <stop offset="100%" stopColor="#C86D44" />
-                </linearGradient>
-                <linearGradient id="growthAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0F8B8D" stopOpacity="0.22" />
-                  <stop offset="65%" stopColor="#0055FF" stopOpacity="0.06" />
-                  <stop offset="100%" stopColor="#0F8B8D" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-
-              {[0.25, 0.5, 0.75, 1].map((frac) => {
-                const y = padY + usableH * (1 - frac);
-                return (
-                  <line
-                    key={frac}
-                    x1={padX}
-                    y1={y}
-                    x2={graphWidth - padX}
-                    y2={y}
-                    stroke="rgba(15, 139, 141, 0.14)"
-                    strokeDasharray="3 3"
-                  />
-                );
-              })}
-
-              <line
-                x1={padX}
-                y1={graphHeight - padY}
-                x2={graphWidth - padX}
-                y2={graphHeight - padY}
-                stroke="rgba(15, 139, 141, 0.24)"
-              />
-
-              {areaPath && <path d={areaPath} fill="url(#growthAreaGrad)" />}
-              {linePath && (
-                <path
-                  d={linePath}
-                  fill="none"
-                  stroke="url(#growthLineGrad)"
-                  strokeWidth="2.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+          <div className="w-full h-[220px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <LineChart data={dailySeries} margin={{ top: 10, right: 12, left: -18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(15, 139, 141, 0.14)" vertical={false} />
+                <XAxis
+                  dataKey="shortLabel"
+                  tick={{ fill: "#86868B", fontSize: 11 }}
+                  axisLine={{ stroke: "rgba(15, 139, 141, 0.2)" }}
+                  tickLine={false}
+                  interval="preserveStartEnd"
                 />
-              )}
+                <YAxis
+                  allowDecimals={false}
+                  domain={[0, "auto"]}
+                  tick={{ fill: "#86868B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const point = payload[0].payload as DailyProgressPoint;
+                    return (
+                      <div className="rounded-[12px] bg-[#FFFFFF] border border-[#0F8B8D]/20 shadow-md px-3.5 py-2.5 text-xs space-y-1">
+                        <div className="font-semibold text-[#1D1D1F]">{point.shortLabel}</div>
+                        {point.hasEntry ? (
+                          <div className="space-y-0.5 tabular-nums">
+                            <div className="text-[#0055FF] font-medium">Wins: {point.winsCount}</div>
+                            <div className="text-[#0F8B8D] font-medium">
+                              Resilience Points: {point.resilienceCount}
+                            </div>
+                            <div className="text-[#C86D44] font-medium">
+                              Sentiment: {point.sentimentScore} / 5
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-[#86868B]">No entry (0)</div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="winsCount"
+                  name="Wins"
+                  stroke="#0055FF"
+                  strokeWidth={2.2}
+                  dot={{ r: 3, fill: "#0055FF", stroke: "#FFFFFF", strokeWidth: 1.5 }}
+                  activeDot={{ r: 5 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="resilienceCount"
+                  name="Resilience Points"
+                  stroke="#0F8B8D"
+                  strokeWidth={2.2}
+                  dot={{ r: 3, fill: "#0F8B8D", stroke: "#FFFFFF", strokeWidth: 1.5 }}
+                  activeDot={{ r: 5 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="sentimentScore"
+                  name="Sentiment"
+                  stroke="#C86D44"
+                  strokeWidth={2.2}
+                  dot={{ r: 3, fill: "#C86D44", stroke: "#FFFFFF", strokeWidth: 1.5 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
-              {points.map((pt, idx) => (
-                <g
-                  key={pt.data.date}
-                  onMouseEnter={() => setHoveredDay(pt.data)}
-                  className="cursor-pointer"
-                >
-                  <circle cx={pt.x} cy={pt.y} r="10" fill="transparent" />
-                  {pt.data.hasEntry ? (
-                    <circle
-                      cx={pt.x}
-                      cy={pt.y}
-                      r={activeHover?.date === pt.data.date ? 5.2 : 3.8}
-                      fill={idx % 2 === 0 ? "#0F8B8D" : "#0055FF"}
-                      stroke="#FFFFFF"
-                      strokeWidth="1.6"
-                    />
-                  ) : (
-                    <circle
-                      cx={pt.x}
-                      cy={pt.y}
-                      r={3}
-                      fill="#EDF7F6"
-                      stroke="rgba(15, 139, 141, 0.35)"
-                      strokeWidth="1.2"
-                    />
-                  )}
-                </g>
-              ))}
-            </svg>
+        {/* Chart 2: Recharts Solid Line Graph - Compounding Growth Over Time */}
+        <div
+          id="compounding-growth-chart"
+          className="rounded-[16px] apple-well p-4 sm:p-5 space-y-3"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#0055FF]">
+              <Layers className="w-4 h-4 text-[#0055FF]" />
+              <span>Compounding Growth Over Time</span>
+            </div>
+            <p className="text-[11px] text-[#86868B] mt-0.5">
+              Starts from your signup day · Moves upward only on days you add entries
+            </p>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] font-mono text-[#86868B] pt-1">
-            <span>{dailySeries[0]?.shortLabel}</span>
-            <span>{dailySeries[Math.floor(dailySeries.length / 2)]?.shortLabel}</span>
-            <span>{dailySeries[dailySeries.length - 1]?.shortLabel}</span>
+          <div className="w-full h-[210px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <LineChart data={compoundingSeries} margin={{ top: 10, right: 12, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(15, 139, 141, 0.14)" vertical={false} />
+                <XAxis
+                  dataKey="monthLabel"
+                  tick={{ fill: "#86868B", fontSize: 11 }}
+                  axisLine={{ stroke: "rgba(15, 139, 141, 0.2)" }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "#86868B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const p = payload[0].payload;
+                    return (
+                      <div className="rounded-[12px] bg-[#FFFFFF] border border-[#0F8B8D]/20 shadow-md px-3.5 py-2.5 text-xs space-y-1">
+                        <div className="font-semibold text-[#1D1D1F]">{p.monthLabel}</div>
+                        <div className="space-y-0.5 tabular-nums">
+                          <div className="text-[#0F8B8D] font-medium">
+                            Compounded Growth: {p.compoundedGrowth}
+                          </div>
+                          <div className="text-[#515154]">Entries: {p.entriesCount}</div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="compoundedGrowth"
+                  name="Compounding Growth"
+                  stroke="#0F8B8D"
+                  strokeWidth={2.6}
+                  dot={{ r: compoundingSeries.length <= 2 ? 4.5 : 3.5, fill: "#0F8B8D", stroke: "#FFFFFF", strokeWidth: 1.5 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
@@ -335,8 +438,10 @@ export default function DidIWinCard({ entries, userName, onNavigateRecord }: Did
             <Clock className="w-3.5 h-3.5 text-[#C86D44]" />
             <span>Slowdowns</span>
           </h4>
-          {cardData.slowdowns.length === 0 || cardData.slowdowns[0] === "No major slowdowns recorded." ? (
-            <p className="text-xs text-[#86868B]">No major slowdowns recorded for this period.</p>
+          {cardData.slowdowns.length === 0 ||
+          cardData.slowdowns[0] === "No slowdowns logged." ||
+          cardData.slowdowns[0] === "No major slowdowns recorded." ? (
+            <p className="text-xs text-[#86868B]">No slowdowns logged in these days.</p>
           ) : (
             <div className="space-y-2">
               {cardData.slowdowns.map((slowdown, idx) => (

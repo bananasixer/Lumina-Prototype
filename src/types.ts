@@ -83,4 +83,6 @@ export interface DidIWinData {
   periodLabel: string;
   growthStoryCount: number;
   streakCount: number;
+  bestStreak?: number;
+  wonToday?: boolean;
 }

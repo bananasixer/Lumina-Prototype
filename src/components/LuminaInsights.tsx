@@ -63,30 +63,30 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
 
     if (distractionDays >= 2) {
       observations.push({
-        title: "Context Switching & Screen Distraction",
+        title: "Phone & Screen Distractions",
         count: distractionDays,
-        notes: `Appeared across ${distractionDays} separate entries.`,
+        notes: `Came up in ${distractionDays} entries.`,
       });
     }
     if (postponementDays >= 2) {
       observations.push({
-        title: "Postponing Hard Tasks",
+        title: "Putting Off Hard Tasks",
         count: postponementDays,
-        notes: `High-friction work was deferred across ${postponementDays} logged days.`,
+        notes: `Put off a tough task on ${postponementDays} days.`,
       });
     }
     if (busyworkDays >= 2) {
       observations.push({
-        title: "Secondary Tasks First",
+        title: "Small Tasks Taking Over",
         count: busyworkDays,
-        notes: `Auxiliary cleanup occupied focus blocks on ${busyworkDays} days.`,
+        notes: `Spent time on minor tasks on ${busyworkDays} days.`,
       });
     }
     if (fatigueDays >= 2) {
       observations.push({
-        title: "Sleep & Recovery Debt",
+        title: "Feeling Tired",
         count: fatigueDays,
-        notes: `Fatigue surfaced across ${fatigueDays} sessions.`,
+        notes: `Low energy or poor sleep came up on ${fatigueDays} days.`,
       });
     }
 
@@ -96,9 +96,9 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
   return (
     <div className="space-y-8 max-w-3xl mx-auto text-left" id="lumina-insights-root">
       <div className="border-b border-[#0F8B8D]/15 pb-5 space-y-1">
-        <span className="text-xs font-semibold text-[#0F8B8D]">Mirror &amp; Pattern Watch</span>
+        <span className="text-xs font-semibold text-[#0F8B8D]">Your Patterns</span>
         <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1D1D1F] tracking-[-0.025em]">
-          Only what you recorded
+          Only what you shared
         </h2>
       </div>
 
@@ -107,14 +107,14 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
         id="lumina-mirror-streak-module"
       >
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[#86868B]">Quiet Streak</span>
+          <span className="text-xs font-medium text-[#86868B]">Daily Streak</span>
           <div className="text-3xl font-display font-bold text-[#1D1D1F] tabular-nums">
             Day {streak}
           </div>
           <p className="text-xs text-[#515154]">
             {streak > 0
-              ? `${streak} consecutive ${streak === 1 ? "day" : "days"} logged.`
-              : "Log a session today to start Day 1."}
+              ? `${streak} ${streak === 1 ? "day" : "days"} in a row.`
+              : "Record today to start Day 1."}
           </p>
         </div>
 
@@ -142,7 +142,7 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-display font-semibold text-[#1D1D1F] flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#0055FF]" />
-            <span>Weekly Mirror</span>
+            <span>Recent Notes</span>
           </h3>
           {weeklyMirror && (
             <span className="text-xs font-mono text-[#86868B] tabular-nums">
@@ -160,11 +160,7 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
               >
                 <div className="space-y-1">
                   <p className="text-sm text-[#1D1D1F] font-medium">{entry.win}</p>
-                  <p className="text-xs text-[#515154]">
-                    {[entry.detectedLanguage, entry.tone ? `Tone: ${entry.tone}` : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
+                  <p className="text-xs text-[#515154]">Saved in English</p>
                 </div>
                 <span className="text-xs font-mono text-[#86868B] shrink-0 tabular-nums">
                   {entry.date}
@@ -174,7 +170,7 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
           </div>
         ) : (
           <div className="apple-card rounded-[24px] p-8 text-center text-xs text-[#86868B]">
-            Your Weekly Mirror populates once you log entries.
+            Your recent notes will show up here once you save an entry.
           </div>
         )}
       </div>
@@ -183,7 +179,7 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
         <div className="flex items-center justify-between gap-4">
           <h3 className="text-lg font-display font-semibold text-[#1D1D1F] flex items-center gap-2">
             <Activity className="w-4 h-4 text-[#C86D44]" />
-            <span>Pattern Watch</span>
+            <span>Repeated Habits</span>
           </h3>
           <button
             type="button"
@@ -216,8 +212,8 @@ export default function LuminaInsights({ entries }: LuminaInsightsProps) {
             ) : (
               <div className="apple-card rounded-[20px] p-6 text-center text-xs text-[#86868B]">
                 {entries.length < 2
-                  ? "Requires at least 2 logged days to evaluate repeating patterns."
-                  : "No repeating slowdown patterns detected across days."}
+                  ? "Save at least 2 days of notes to spot repeating habits."
+                  : "No repeating slowdown habits found yet."}
               </div>
             )}
           </>

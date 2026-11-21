@@ -11,8 +11,10 @@ import {
   orderBy,
   deleteDoc,
   doc,
+  setDoc,
 } from "./lib/firebase";
 import { UserSession, WinEntry } from "./types";
+import { safeApiPost } from "./utils/safeApi";
 import SecureGateway from "./components/SecureGateway";
 import Header from "./components/Header";
 import SlideOutDrawer, { AppViewTab } from "./components/SlideOutDrawer";
@@ -27,6 +29,31 @@ import PrivacyPolicy from "./components/PrivacyPolicy";
 import LuminaLogo from "./components/LuminaLogo";
 import { RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+
+const NON_ASCII_SCRIPT_RE = /[^\u0000-\u007F]/;
+const ROMAN_OR_FOREIGN_RE =
+  /\b(aaj|maine|humne|kaam|mushkil|bohot|bahut|nahi|lekin|aur|tha|thi|hai|hain|kiya|gaya|gayi|waqt|zaya|susti|pareshan|thak|mukammal|banaya|seekha|parha|kal|raat|subah|masla|khush|hoy|pero|muy|trabajo|tengo|difícil|terminé|aujourd'hui|travail|difficile|heute|arbeit|schwer)\b/i;
+
+const textNeedsEnglishTranslation = (val?: string | null): boolean => {
+  if (!val) return false;
+  const cleaned = val
+    .replace(/[\u2018\u2019\u201C\u201D\u2013\u2014\u2026·•]/g, " ")
+    .trim();
+  if (!cleaned) return false;
+  return NON_ASCII_SCRIPT_RE.test(cleaned) || ROMAN_OR_FOREIGN_RE.test(cleaned);
+};
+
+const entryNeedsEnglishNormalization = (entry: WinEntry): boolean => {
+  if (entry.detectedLanguage && entry.detectedLanguage !== "English") return true;
+  if (textNeedsEnglishTranslation(entry.win)) return true;
+  if (textNeedsEnglishTranslation(entry.transcript)) return true;
+  if (textNeedsEnglishTranslation(entry.feedback)) return true;
+  if (textNeedsEnglishTranslation(entry.slowdownCause)) return true;
+  if ((entry.winsExtracted || []).some((w) => textNeedsEnglishTranslation(w))) return true;
+  if ((entry.hardMomentsExtracted || []).some((h) => textNeedsEnglishTranslation(h))) return true;
+  if ((entry.slowdownsExtracted || []).some((s) => textNeedsEnglishTranslation(s))) return true;
+  return false;
+};
 
 export default function App() {
   const [user, setUser] = useState<UserSession | null>(null);
@@ -55,7 +82,83 @@ export default function App() {
     return () => window.removeEventListener("popstate", handleLocationChange);
   }, []);
 
+  const normalizeEntriesToEnglish = async (
+    rawEntries: WinEntry[],
+    uid: string,
+    isDemoAccount: boolean
+  ) => {
+    const dirty = rawEntries.filter(entryNeedsEnglishNormalization);
+    if (dirty.length === 0) return;
+
+    try {
+      const normalizedMap = new Map<string, WinEntry>();
+      for (let i = 0; i < dirty.length; i += 20) {
+        const chunk = dirty.slice(i, i + 20);
+        const resp = await safeApiPost<{ entries: WinEntry[] }>("/api/translate-entries", {
+          entries: chunk,
+        });
+        if (Array.isArray(resp?.entries)) {
+          for (const item of resp.entries) {
+            if (item?.id) normalizedMap.set(item.id, item);
+          }
+        }
+      }
+
+      if (normalizedMap.size === 0) return;
+
+      setEntries((prev) => {
+        const merged = prev.map((item) => normalizedMap.get(item.id) || item);
+        try {
+          localStorage.setItem(`lumina_vault_${uid}`, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
+
+      if (!isDemoAccount) {
+        await Promise.all(
+          Array.from(normalizedMap.values()).map((updated) =>
+            setDoc(
+              doc(db, "users", uid, "entries", updated.id),
+              {
+                win: updated.win,
+                transcript: updated.transcript,
+                feedback: updated.feedback || "Saved to your progress record.",
+                slowdownCause: updated.slowdownCause || null,
+                winsExtracted: updated.winsExtracted || [],
+                hardMomentsExtracted: updated.hardMomentsExtracted || [],
+                slowdownsExtracted: updated.slowdownsExtracted || [],
+                detectedLanguage: "English",
+              },
+              { merge: true }
+            ).catch(() => {})
+          )
+        );
+      }
+    } catch {
+      // Keep existing loaded state if offline
+    }
+  };
+
   useEffect(() => {
+    const resolveJoinedAt = (
+      uid: string,
+      fbUser?: { metadata?: { creationTime?: string } } | null
+    ): number => {
+      const metaMs = fbUser?.metadata?.creationTime
+        ? Date.parse(fbUser.metadata.creationTime)
+        : NaN;
+      try {
+        const key = `lumina_joined_at_${uid}`;
+        const saved = localStorage.getItem(key);
+        if (saved && !Number.isNaN(Number(saved))) return Number(saved);
+        const ts = !Number.isNaN(metaMs) ? metaMs : Date.now();
+        localStorage.setItem(key, String(ts));
+        return ts;
+      } catch {
+        return !Number.isNaN(metaMs) ? metaMs : Date.now();
+      }
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const session: UserSession = {
@@ -63,6 +166,7 @@ export default function App() {
           email: firebaseUser.email,
           displayName: firebaseUser.displayName || "Builder",
           photoURL: firebaseUser.photoURL,
+          createdAt: resolveJoinedAt(firebaseUser.uid, firebaseUser),
           dob: "2000-01-01",
           age: 25,
           ageVerified: true,
@@ -81,11 +185,17 @@ export default function App() {
             if (activeSession) {
               const parsed = JSON.parse(activeSession);
               if (parsed && parsed.uid) {
+                if (!parsed.createdAt) {
+                  parsed.createdAt = resolveJoinedAt(parsed.uid, null);
+                }
                 try {
                   const cachedVault = localStorage.getItem(`lumina_vault_${parsed.uid}`);
                   if (cachedVault) {
                     const parsedVault = JSON.parse(cachedVault);
-                    if (Array.isArray(parsedVault)) setEntries(parsedVault);
+                    if (Array.isArray(parsedVault)) {
+                      setEntries(parsedVault);
+                      normalizeEntriesToEnglish(parsedVault, parsed.uid, Boolean(parsed.isDemo));
+                    }
                   }
                 } catch {}
                 return parsed;
@@ -121,6 +231,7 @@ export default function App() {
       try {
         localStorage.setItem(`lumina_vault_${uid}`, JSON.stringify(loaded));
       } catch {}
+      normalizeEntriesToEnglish(loaded, uid, false);
     } catch (error) {
       console.error("Error fetching Firestore entries:", error);
     } finally {
@@ -138,7 +249,14 @@ export default function App() {
       const cached = localStorage.getItem(`lumina_vault_${session.uid}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        setEntries(Array.isArray(parsed) ? parsed : []);
+        if (Array.isArray(parsed)) {
+          setEntries(parsed);
+          if (session.isDemo) {
+            normalizeEntriesToEnglish(parsed, session.uid, true);
+          }
+        } else {
+          setEntries([]);
+        }
       } else {
         setEntries([]);
       }
@@ -385,6 +503,7 @@ export default function App() {
                     <DidIWinCard
                       entries={entries}
                       userName={user.displayName || "Builder"}
+                      userCreatedAt={user.createdAt}
                       onNavigateRecord={() => setActiveTab("command")}
                     />
                   </motion.div>

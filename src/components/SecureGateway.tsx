@@ -130,6 +130,23 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
       } catch {}
     }
 
+    const resolveJoinTimestamp = (
+      userUid: string,
+      fbUser?: { metadata?: { creationTime?: string } } | null
+    ) => {
+      const metaMs = fbUser?.metadata?.creationTime ? Date.parse(fbUser.metadata.creationTime) : NaN;
+      try {
+        const key = `lumina_joined_at_${userUid}`;
+        const existing = localStorage.getItem(key);
+        if (existing && !Number.isNaN(Number(existing))) return Number(existing);
+        const resolved = !Number.isNaN(metaMs) ? metaMs : Date.now();
+        localStorage.setItem(key, String(resolved));
+        return resolved;
+      } catch {
+        return !Number.isNaN(metaMs) ? metaMs : Date.now();
+      }
+    };
+
     try {
       localStorage.setItem("lumina_last_email", cleanEmail);
       localStorage.setItem("lumina_last_name", cleanName);
@@ -140,7 +157,7 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
       email: cleanEmail,
       displayName: cleanName,
       photoURL: auth.currentUser?.photoURL || null,
-      createdAt: Date.now(),
+      createdAt: resolveJoinTimestamp(uid, auth.currentUser),
       dob: "2000-01-01",
       age: 25,
       ageVerified: true,
@@ -185,12 +202,23 @@ export default function SecureGateway({ onAuthSuccess, onOpenPrivacy }: SecureGa
           localStorage.setItem("lumina_last_name", cleanName);
         } catch {}
 
+        const metaMs = result.user.metadata?.creationTime
+          ? Date.parse(result.user.metadata.creationTime)
+          : NaN;
+        let joinedAt = !Number.isNaN(metaMs) ? metaMs : Date.now();
+        try {
+          const key = `lumina_joined_at_${result.user.uid}`;
+          const existing = localStorage.getItem(key);
+          if (existing && !Number.isNaN(Number(existing))) joinedAt = Number(existing);
+          else localStorage.setItem(key, String(joinedAt));
+        } catch {}
+
         onAuthSuccess({
           uid: result.user.uid,
           email: result.user.email,
           displayName: cleanName,
           photoURL: result.user.photoURL,
-          createdAt: Date.now(),
+          createdAt: joinedAt,
           dob: "2000-01-01",
           age: 25,
           ageVerified: true,

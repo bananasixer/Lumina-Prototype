@@ -52,9 +52,222 @@ const parseGeminiJson = (responseText: string) => {
   }
 };
 
-// Local speech correction & misspelling/wrong-word fixer (resilient fallback when free API quota is unavailable)
-const refineSpeechLocally = (rawText: string): string => {
-  let text = (rawText || "").replace(/\s+/g, " ").trim();
+const normalizeTypographicQuotes = (input: string): string =>
+  (input || "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...");
+
+const ROMAN_URDU_WORD_RE =
+  /\b(aaj|maine|humne|kaam|mushkil|bohot|bahut|nahi|lekin|aur|tha|thi|thay|hai|hain|kiya|gaya|gayi|waqt|zaya|susti|pareshan|pareshani|thak|thakawat|mukammal|banaya|seekha|parha|kal|raat|subah|masla|khush|khushi|neend|acha|bura|dil|apna|meri|mera|mere|hum|mein|kuch|zyada|pehle|baad|ghanta|bhaga)\b/i;
+
+const LATIN_FOREIGN_WORD_RE =
+  /\b(hoy|pero|muy|trabajo|tengo|estoy|hacer|bueno|malo|día|días|difícil|terminé|corrí|nadar|je|suis|aujourd'hui|avec|pour|très|fait|mais|travail|difficile|ich|habe|heute|sehr|mit|nicht|aber|arbeit|schwer|bugün|çok|ama|ve|bir|iş|zor|eu|hoje|trabalho)\b/i;
+
+const NON_ENGLISH_CHAR_RE = /[^\u0000-\u007F]/;
+
+const detectSourceLanguageCode = (text: string, hint?: string): string => {
+  if (hint && hint !== "en" && hint !== "auto") return hint;
+  if (/[\u0600-\u06FF]/.test(text)) {
+    // Distinguish Urdu-specific Nastaliq letters from Arabic
+    if (/[ٹڈڑئےہیکگںچپژ]/.test(text) || /\b(میں|نے|آج|اور|لیکن|بہت|کام|دن|تھا|کیا|ہوا)\b/.test(text)) {
+      return "ur";
+    }
+    return "ar";
+  }
+  if (/[\u0900-\u097F]/.test(text)) return "hi";
+  if (/[\u0400-\u04FF]/.test(text)) return "ru";
+  if (/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";
+  if (/\b(hoy|pero|muy|trabajo|tengo|estoy|corrí|después|nadar|difícil|terminé)\b/i.test(text)) return "es";
+  if (/\b(aujourd'hui|j'ai|suis|avec|pour|très|travail|difficile)\b/i.test(text)) return "fr";
+  if (/\b(ich|habe|heute|sehr|mit|nicht|arbeit|schwer)\b/i.test(text)) return "de";
+  if (/\b(bugün|çok|ama|iş|zor|koştum|yüzdüm)\b/i.test(text)) return "tr";
+  if (/\b(hoje|muito|trabalho|estou|com)\b/i.test(text)) return "pt";
+  return "auto";
+};
+
+const needsServerTranslation = (raw: string, sourceLang?: string): boolean => {
+  const normalized = normalizeTypographicQuotes(raw).replace(/[·•۔]/g, ".").trim();
+  if (!normalized) return false;
+  if (sourceLang && sourceLang !== "en" && sourceLang !== "auto") {
+    return true;
+  }
+  return (
+    NON_ENGLISH_CHAR_RE.test(normalized) ||
+    ROMAN_URDU_WORD_RE.test(normalized) ||
+    LATIN_FOREIGN_WORD_RE.test(normalized)
+  );
+};
+
+// Free translation via MyMemory (primary, no 429 CAPTCHA) with Google GTX secondary backup
+const translateChunkFree = async (chunk: string, sl: string): Promise<string> => {
+  const trimmed = chunk.trim();
+  if (!trimmed) return "";
+
+  const effectiveSl = sl === "auto" ? detectSourceLanguageCode(trimmed) : sl;
+
+  // 1. Try MyMemory first when we have an explicit or script-detected language code
+  if (effectiveSl && effectiveSl !== "auto" && effectiveSl !== "en") {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(trimmed)}&langpair=${encodeURIComponent(effectiveSl)}|en`;
+      const response = await fetch(url, { method: "GET", signal: controller.signal });
+      if (response.ok) {
+        const data: any = await response.json();
+        const translated = data?.responseData?.translatedText;
+        if (
+          data?.responseStatus === 200 &&
+          typeof translated === "string" &&
+          translated.trim() &&
+          !translated.includes("INVALID LANGUAGE")
+        ) {
+          return translated.trim();
+        }
+      }
+    } catch {
+      // Fall through to secondary provider
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // 2. Secondary fallback: Google Translate gtx
+  const gtxController = new AbortController();
+  const gtxTimeout = setTimeout(() => gtxController.abort(), 4500);
+  try {
+    const gtxSl = effectiveSl && effectiveSl !== "en" ? effectiveSl : "auto";
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(gtxSl)}&tl=en&dt=t&q=${encodeURIComponent(trimmed)}`;
+    const response = await fetch(url, {
+      method: "GET",
+      signal: gtxController.signal,
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        const joined = data[0]
+          .map((segment: any) => (Array.isArray(segment) && typeof segment[0] === "string" ? segment[0] : ""))
+          .join("")
+          .trim();
+        if (joined) return joined;
+      }
+    }
+  } catch {
+    // Keep original if both providers fail
+  } finally {
+    clearTimeout(gtxTimeout);
+  }
+
+  return trimmed;
+};
+
+const translateViaFreeGtx = async (rawText: string, sourceLang = "auto"): Promise<string> => {
+  const trimmed = (rawText || "").trim();
+  if (!trimmed) return "";
+  const sl = detectSourceLanguageCode(trimmed, sourceLang);
+
+  if (trimmed.length <= 420) {
+    return translateChunkFree(trimmed, sl);
+  }
+
+  // Split into sentence chunks under 420 chars for MyMemory limit
+  const parts = trimmed.split(/(?<=[.!?۔])\s+/);
+  const chunks: string[] = [];
+  let current = "";
+  for (const part of parts) {
+    if ((current + " " + part).trim().length > 420 && current) {
+      chunks.push(current.trim());
+      current = part;
+    } else {
+      current = (current + " " + part).trim();
+    }
+  }
+  if (current) chunks.push(current.trim());
+
+  const translatedParts = await Promise.all(chunks.map((c) => translateChunkFree(c, sl)));
+  return translatedParts.join(" ").trim();
+};
+
+// Roman Urdu phrase conversion (must run before generic translators) + English spelling/sentence cleanup
+const applyRomanUrduAndSpellingFixes = (rawText: string): string => {
+  let text = normalizeTypographicQuotes(rawText || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/آج میں نے اپنا کام مکمل کیا/g, "Today I finished my work."],
+    [/آج بہت مشکل دن تھا/g, "Today was a very hard day."],
+    [/وقت ضائع ہوا/g, "I wasted time and got distracted."],
+    [/مجھے بہت تھکاوٹ ہے/g, "I feel very tired."],
+    [/سستی کی وجہ سے کام نہیں ہوا/g, "I put off my work because I felt tired and lazy."],
+    [/\baaj\s+maine\s+(?:apna\s+)?kaam\s+mukammal\s+(?:kiya|kar\s+liya)\b/gi, "Today I finished my work"],
+    [/\bmaine\s+(?:apna\s+)?kaam\s+(?:mukammal\s+)?(?:kiya|kar\s+liya)\b/gi, "I finished my work"],
+    [/\bkaam\s+mukammal\s+(?:kiya|kar\s+liya|hua)\b/gi, "finished my work"],
+    [/\bwaqt\s+zaya\s+(?:hua|kiya|ho\s+gaya)\b/gi, "I wasted time"],
+    [/\bbaad\s+mein\b/gi, "afterwards"],
+    [/\b(?:ek|1)\s+ghanta\b/gi, "one hour"],
+    [/\bghanta\b/gi, "hour"],
+    [/\bdor\s+lagai\b|\bbhaga\b/gi, "ran"],
+    [/\bswimming\s+ki\b/gi, "went swimming"],
+    [/\b(?:bohot|bahut)\s+mushkil\s+(?:din\s+)?tha\b/gi, "it was a very hard day"],
+    [/\bmushkil\s+(?:bohot|bahut)\s+tha\b/gi, "it was very hard"],
+    [/\bmushkil\s+tha\b/gi, "it was hard"],
+    [/\b(?:bohot|bahut)\s+acha\s+(?:tha|laga)\b/gi, "it was very good"],
+    [/\b(?:bohot|bahut)\s+thak\s+(?:gaya|gayi)\b/gi, "I felt very tired"],
+    [/\bthak\s+(?:gaya|gayi)\b/gi, "felt tired"],
+    [/\bpareshan\s+(?:tha|thi|hoon|hun)\b/gi, "felt stressed"],
+    [/\bkaam\s+nahi\s+(?:hua|kiya)\b/gi, "did not finish my work"],
+    [/\bnahi\s+(?:hua|kiya|ho\s+saka)\b/gi, "did not happen"],
+    [/\bneend\s+nahi\s+aayi\b/gi, "could not sleep"],
+    [/\bkuch\s+nahi\s+kiya\b/gi, "did nothing"],
+    [/\baaj\b/gi, "today"],
+    [/\bmaine\b|\bmain ne\b/gi, "I"],
+    [/\bhumne\b/gi, "we"],
+    [/\bkaam\b/gi, "work"],
+    [/\bmukammal kiya\b|\bmukammal kar liya\b|\bmukammal\b/gi, "finished"],
+    [/\bbanaya\b|\bbana liya\b/gi, "built"],
+    [/\btheek ho gaya\b|\btheek kiya\b/gi, "fixed"],
+    [/\bseekha\b/gi, "learned"],
+    [/\bparha\b|\bparhai\b/gi, "studied"],
+    [/\bmushkil\b/gi, "hard"],
+    [/\bpareshan\b|\bpareshani\b/gi, "stressed"],
+    [/\bthakawat\b/gi, "tiredness"],
+    [/\bmasla\b/gi, "problem"],
+    [/\bwaqt zaya\b/gi, "wasted time"],
+    [/\bsusti\b/gi, "low energy and delay"],
+    [/\bbohot\b|\bbahut\b/gi, "very"],
+    [/\bzyada\b/gi, "more"],
+    [/\bwaqt\b/gi, "time"],
+    [/\blekin\b/gi, "but"],
+    [/\bphir\b/gi, "then"],
+    [/\baur\b/gi, "and"],
+    [/\btha\b|\bthi\b/gi, "was"],
+    [/\bhai\b/gi, "is"],
+    [/\bhua\b|\bhui\b/gi, "happened"],
+    [/\bkal\b/gi, "yesterday"],
+    [/\braat\b/gi, "night"],
+    [/\bsubah\b/gi, "morning"],
+    [/\bdin\b/gi, "day"],
+    [/\bacha\b/gi, "good"],
+    [/\bbura\b/gi, "bad"],
+    [/\bkhush\b|\bkhushi\b/gi, "happy"],
+    [/\bapna\b|\bapni\b/gi, "my"],
+    [/\bghar\b/gi, "home"],
+    [/\bdost\b/gi, "friend"],
+  ];
+
+  // Only apply Roman Urdu replacements when Roman Urdu tokens are actually present
+  if (ROMAN_URDU_WORD_RE.test(text) || /[\u0600-\u06FF]/.test(text)) {
+    for (const [pattern, replacement] of phraseReplacements) {
+      text = text.replace(pattern, replacement);
+    }
+  }
+
+  return text.replace(/\s+/g, " ").trim();
+};
+
+const polishSimpleEnglish = (rawText: string): string => {
+  let text = normalizeTypographicQuotes(rawText || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
 
   const wordFixes: Array<[RegExp, string]> = [
@@ -91,7 +304,6 @@ const refineSpeechLocally = (rawText: string): string => {
     [/\btheir are\b/gi, "there are"],
     [/\byour welcome\b/gi, "you're welcome"],
     [/\byour right\b/gi, "you're right"],
-    [/\bpeace of mind\b/gi, "peace of mind"],
     [/\bbrake time\b/gi, "break time"],
     [/\bweather or not\b/gi, "whether or not"],
     [/\bsuppose to\b/gi, "supposed to"],
@@ -100,6 +312,24 @@ const refineSpeechLocally = (rawText: string): string => {
     [/\bbuilded\b/gi, "built"],
     [/\bwrited\b/gi, "wrote"],
     [/\bmaked\b/gi, "made"],
+    [/\band\s+was\s+bad\s+mean\b/gi, "and afterwards"],
+    [/\bbad\s+mean\b/gi, "afterwards"],
+    [/\btwo\s+today\s+men\b/gi, "today I"],
+    [/\btoday\s+men\b/gi, "today I"],
+    [/\bwent\s+for\s+run\b/gi, "went for a run"],
+    [/\bfor\s+run\b/gi, "for a run"],
+    [/\bthen\s+i\s+swimming\b/gi, "then I went swimming"],
+    [/\band\s+i\s+swimming\b/gi, "and I went swimming"],
+    [/\bafterwards\s+i\s+swimming\b/gi, "afterwards I went swimming"],
+    [/\bi\s+swimming\b/gi, "I went swimming"],
+    [/\bthen\s+swimming\b/gi, "then went swimming"],
+    [/\bfeel\s+very\s+tire\b/gi, "feel very tired"],
+    [/\bfelt\s+very\s+tire\b/gi, "felt very tired"],
+    [/\bvery\s+tire\b/gi, "very tired"],
+    [/\bdifficult\b/gi, "hard"],
+    [/\bcompleted\b/gi, "finished"],
+    [/\bprocrastinated\b/gi, "put things off"],
+    [/\bprocrastination\b/gi, "putting things off"],
   ];
 
   for (const [pattern, replacement] of wordFixes) {
@@ -110,52 +340,126 @@ const refineSpeechLocally = (rawText: string): string => {
   text = text.replace(/\s+(however|although)\s+/gi, ". $1 ");
   text = text.replace(/([^.!?])\s+(later today|after that|on the other hand)\s+/gi, "$1. $2 ");
 
+  // Replace Urdu/Arabic sentence stop with standard English period
+  text = text.replace(/۔/g, ".");
+
   // Capitalize sentences cleanly and ensure punctuation
   const sentences = text
-    .split(/(?<=[.!?۔])\s+/)
+    .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter(Boolean)
     .map((s) => {
       const capitalized = s.charAt(0).toUpperCase() + s.slice(1);
-      return /[.!?۔]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+      return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
     });
 
   return sentences.join(" ");
 };
 
-// Free local fallback analyzer & exact category extractor
-const analyzeLocally = (rawText: string) => {
-  const text = refineSpeechLocally(rawText);
-  const lower = text.toLowerCase();
+// Deep English grammar, spelling, agreement, and punctuation auto-correction via LanguageTool
+const autoCorrectEnglishWithLanguageTool = async (rawText: string): Promise<string> => {
+  const input = (rawText || "").trim();
+  if (!input || input.length < 3) return input;
 
-  const hasUrduScript = /[\u0600-\u06FF]/.test(text);
-  const romanUrduTokens = [
-    "aaj", "kaam", "gaya", "gayi", "nahi", "karna", "kiya", "aur", "tha", "thi",
-    "hai", "hain", "mein", "hum", "mera", "meri", "mere", "bohot", "bahut",
-    "mushkil", "waqt", "shukriya", "kya", "lekin", "phir", "abhi", "yeh", "woh",
-    "bhi", "sab", "acha", "theek", "banaya", "mukammal", "seekha", "parha",
-    "susti", "pareshan", "masla", "kal", "raat", "subah", "dil", "apna"
-  ];
-  const words = lower.split(/[\s,.;!?]+/).filter(Boolean);
-  const romanHits = words.filter((w) => romanUrduTokens.includes(w)).length;
-  const hasEnglishWords = words.some(
-    (w) => /^[a-z]{2,}$/.test(w) && !romanUrduTokens.includes(w)
-  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const body = new URLSearchParams({
+      text: input,
+      language: "en-US",
+      enabledOnly: "false",
+    });
+    const response = await fetch("https://api.languagetool.org/v2/check", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) return input;
+    const data: any = await response.json();
+    const matches = Array.isArray(data?.matches) ? data.matches : [];
+    if (matches.length === 0) return input;
 
-  let detectedLanguage = "English";
-  if (hasUrduScript && hasEnglishWords) {
-    detectedLanguage = "Urdu · English";
-  } else if (hasUrduScript) {
-    detectedLanguage = "Urdu";
-  } else if (romanHits >= 2 && hasEnglishWords) {
-    detectedLanguage = "Urdu · English";
-  } else if (romanHits >= 2) {
-    detectedLanguage = "Urdu";
+    // Apply non-overlapping top-ranked suggestions from end to start so string offsets stay valid
+    const sorted = [...matches].sort((a, b) => (b.offset || 0) - (a.offset || 0));
+    let fixed = input;
+    let lastStart = fixed.length + 1;
+
+    for (const match of sorted) {
+      const offset = Number(match?.offset);
+      const length = Number(match?.length);
+      const topReplacement = match?.replacements?.[0]?.value;
+      if (
+        Number.isNaN(offset) ||
+        Number.isNaN(length) ||
+        typeof topReplacement !== "string" ||
+        offset + length > lastStart
+      ) {
+        continue;
+      }
+      // Preserve intentional casual proper nouns unless obvious spelling/grammar rule
+      const issueType = match?.rule?.issueType;
+      if (issueType === "style" && matches.length > 8) continue;
+
+      fixed = fixed.slice(0, offset) + topReplacement + fixed.slice(offset + length);
+      lastStart = offset;
+    }
+
+    return fixed.replace(/\s+/g, " ").trim() || input;
+  } catch {
+    return input;
+  } finally {
+    clearTimeout(timeout);
   }
+};
+
+const translateToSimpleEnglish = async (
+  rawText: string,
+  sourceLang = "auto"
+): Promise<string> => {
+  const input = (rawText || "").trim();
+  if (!input) return "";
+
+  let working = input;
+
+  // Step 1: Pre-clean phonetic/Roman-Urdu patterns if present, or translate whole native-script / foreign text
+  if (
+    NON_ENGLISH_CHAR_RE.test(working) ||
+    LATIN_FOREIGN_WORD_RE.test(working) ||
+    (sourceLang && sourceLang !== "en" && sourceLang !== "auto" && !ROMAN_URDU_WORD_RE.test(working))
+  ) {
+    const translated = await translateViaFreeGtx(working, sourceLang);
+    if (translated) {
+      working = translated;
+    }
+  } else if (ROMAN_URDU_WORD_RE.test(working)) {
+    working = applyRomanUrduAndSpellingFixes(working);
+    if (needsServerTranslation(working)) {
+      const translated = await translateViaFreeGtx(working, "auto");
+      if (translated) working = translated;
+    }
+  }
+
+  // Step 2: Smooth common spoken/translated phrasing slips before deep grammar check
+  working = polishSimpleEnglish(working);
+
+  // Step 3: Deep English grammar, spelling, tense, and punctuation auto-correction
+  working = await autoCorrectEnglishWithLanguageTool(working);
+
+  // Step 4: Final sentence capitalization & punctuation guarantee
+  return polishSimpleEnglish(working);
+};
+
+// Free local fallback analyzer & exact category extractor (always outputs simple English)
+const analyzeLocally = async (rawText: string, sourceLang = "auto") => {
+  const text = await translateToSimpleEnglish(rawText, sourceLang);
+  const lower = text.toLowerCase();
 
   const crisisTerms = [
     "suicide", "kill myself", "end my life", "self harm", "want to die",
-    "khudkushi", "khud kushi", "marna chahta", "خودکشی", "جان دینا"
+    "khudkushi", "khud kushi", "marna chahta",
   ];
   const isCrisis = crisisTerms.some((t) => lower.includes(t));
 
@@ -174,11 +478,11 @@ const analyzeLocally = (rawText: string) => {
 
   if (extracted.slowdownsExtracted.length > 0) {
     if (lower.includes("scroll") || lower.includes("phone") || lower.includes("social")) {
-      slowdownCause = "Phone or screen distraction interrupted focus.";
-    } else if (lower.includes("tired") || lower.includes("sleep") || lower.includes("thak")) {
-      slowdownCause = "Low energy or lack of rest slowed momentum.";
+      slowdownCause = "Phone or screen distraction broke your focus.";
+    } else if (lower.includes("tired") || lower.includes("sleep")) {
+      slowdownCause = "Low energy or lack of sleep slowed you down.";
     } else {
-      slowdownCause = "Momentum stalled on the planned task.";
+      slowdownCause = "Something slowed down your planned work.";
     }
   }
 
@@ -186,7 +490,7 @@ const analyzeLocally = (rawText: string) => {
     (category === "win" && extracted.winsExtracted[0]) ||
     (category === "resilience" && extracted.hardMomentsExtracted[0]) ||
     (category === "slowdown" && extracted.slowdownsExtracted[0]) ||
-    text.split(/[.!?۔\n]+/).map((s) => s.trim()).find(Boolean) ||
+    text.split(/[.!?\n]+/).map((s) => s.trim()).find(Boolean) ||
     text;
 
   const takeawayWords = primaryLine.split(/\s+/);
@@ -195,17 +499,17 @@ const analyzeLocally = (rawText: string) => {
       ? `${takeawayWords.slice(0, 17).join(" ")}...`
       : primaryLine;
 
-  let feedback = "Logged clearly to your private progress record.";
+  let feedback = "Saved to your progress record.";
   if (category === "win") {
-    feedback = `Recorded your progress: "${win}".`;
+    feedback = `Saved your win: "${win}".`;
   } else if (category === "resilience") {
-    feedback = `Noted the hard moment you worked through.`;
+    feedback = "Saved the hard moment you kept going through.";
   } else {
-    feedback = `Noted this slowdown honestly so you can reset on your next step.`;
+    feedback = "Saved this slowdown so you can start fresh tomorrow.";
   }
 
   return {
-    detectedLanguage,
+    detectedLanguage: "English",
     transcript: text,
     winsExtracted: extracted.winsExtracted,
     hardMomentsExtracted: extracted.hardMomentsExtracted,
@@ -218,12 +522,72 @@ const analyzeLocally = (rawText: string) => {
     resiliencePoint: category === "resilience",
     tone: category === "slowdown" ? "reflective" : category === "resilience" ? "steady" : "focused",
     isGrowthStory: category !== "slowdown",
-    tags: [detectedLanguage.toLowerCase().includes("urdu") ? "urdu" : "english", category],
+    tags: ["english", category],
     safetyTier: isCrisis ? "crisis" : "standard",
     isCrisis,
     crisisResources: isCrisis
       ? "988 Suicide & Crisis Lifeline (US/CA) · Text HOME to 741741 · Find local helplines at findahelpline.com"
       : null,
+  };
+};
+
+// Guarantees every field returned from Gemini or fallback is strictly plain, grammar-checked English
+const ensureResultIsEnglish = async (parsed: any, rawFallbackText: string, sourceLang = "auto") => {
+  const transcriptSource = (parsed?.transcript || "").trim() || rawFallbackText;
+  const cleanTranscript = await translateToSimpleEnglish(transcriptSource, sourceLang);
+
+  const normalizeField = async (val: string | null | undefined): Promise<string | null> => {
+    if (!val || typeof val !== "string") return null;
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+    return await translateToSimpleEnglish(trimmed, "auto");
+  };
+
+  const normalizeArray = async (arr: unknown): Promise<string[]> => {
+    if (!Array.isArray(arr)) return [];
+    const results: string[] = [];
+    for (const item of arr) {
+      if (typeof item === "string" && item.trim()) {
+        const clean = await normalizeField(item);
+        if (clean) results.push(clean);
+      }
+    }
+    return results;
+  };
+
+  let winsExtracted = await normalizeArray(parsed?.winsExtracted);
+  let hardMomentsExtracted = await normalizeArray(parsed?.hardMomentsExtracted);
+  let slowdownsExtracted = await normalizeArray(parsed?.slowdownsExtracted);
+
+  if (winsExtracted.length === 0 && hardMomentsExtracted.length === 0 && slowdownsExtracted.length === 0) {
+    const localExtracted = extractCategorySegments(cleanTranscript);
+    winsExtracted = localExtracted.winsExtracted;
+    hardMomentsExtracted = localExtracted.hardMomentsExtracted;
+    slowdownsExtracted = localExtracted.slowdownsExtracted;
+  }
+
+  const cleanWin =
+    (await normalizeField(parsed?.win)) ||
+    winsExtracted[0] ||
+    hardMomentsExtracted[0] ||
+    slowdownsExtracted[0] ||
+    cleanTranscript;
+
+  const cleanFeedback =
+    (await normalizeField(parsed?.feedback)) || "Saved to your progress record in simple English.";
+
+  const cleanSlowdownCause = await normalizeField(parsed?.slowdownCause);
+
+  return {
+    ...parsed,
+    detectedLanguage: "English",
+    transcript: cleanTranscript,
+    winsExtracted,
+    hardMomentsExtracted,
+    slowdownsExtracted,
+    win: cleanWin,
+    feedback: cleanFeedback,
+    slowdownCause: cleanSlowdownCause,
   };
 };
 
@@ -276,10 +640,10 @@ app.post("/api/parental-notice", (req: express.Request, res: express.Response) =
   });
 });
 
-// API route: Live While-Speaking Speech-to-Text + AI Sentence Correction & Misspelling/Wrong-Word Fix
+// API route: Live While-Speaking Speech-to-Text + AI Sentence Correction & English Translation
 app.post("/api/refine-speech", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { text, audio, mimeType } = req.body;
+    const { text, audio, mimeType, sourceLang } = req.body;
     let sourceText = typeof text === "string" ? text.trim() : "";
 
     if (!sourceText && !audio) {
@@ -291,7 +655,6 @@ app.post("/api/refine-speech", async (req: express.Request, res: express.Respons
     try {
       const ai = getGeminiClient();
 
-      // Convert live audio chunk to text first when browser speech text is missing
       if (audio && !sourceText) {
         const transcribeResp = await ai.models.generateContent({
           model: "gemini-3.5-transcribe",
@@ -304,7 +667,7 @@ app.post("/api/refine-speech", async (req: express.Request, res: express.Respons
                 },
               },
               {
-                text: "Transcribe this spoken audio accurately in its spoken language. Return only the spoken text.",
+                text: `Transcribe this spoken audio accurately in its spoken language${sourceLang && sourceLang !== "en" ? ` (expected language code: ${sourceLang})` : ""}. Return only the spoken text.`,
               },
             ],
           },
@@ -318,17 +681,15 @@ app.post("/api/refine-speech", async (req: express.Request, res: express.Respons
         return;
       }
 
-      // Run live spoken text through Gemini AI to fix misspellings, replace misheard/wrong words,
-      // and form complete sensible sentences without changing what the speaker meant.
       const refineResp = await ai.models.generateContent({
         model: "gemini-3.1-flash-lite",
         contents: [
           {
-            text: `You clean up live speech-to-text while a user is speaking.
+            text: `You clean up and auto-translate live speech-to-text while a user is speaking in their own language (${sourceLang || "any"}).
 Rules:
-1. Detect and fix any misspellings or wrong/misheard words (e.g., homophones or speech-recognition mistakes that don't fit the sentence context) using surrounding meaning.
-2. Add clean sentence structure, punctuation, capitalization, and light natural phrasing where fragmented so every sentence makes clear sense.
-3. Preserve the speaker's actual ideas, names, numbers, and original language (English, Urdu, or mixed) without adding unrelated content.
+1. ALWAYS write the output in natural, simple, easy-to-understand English—even if the user spoke Urdu, Hindi, Arabic, Spanish, Roman Urdu, or any other language. Translate every non-English sentence cleanly into natural English.
+2. Fix any misspellings or wrong/misheard words using surrounding sentence meaning.
+3. Add clean sentence structure and punctuation so every sentence reads naturally.
 Return valid JSON: { "refinedText": string }.
 
 LIVE SPEECH TEXT:
@@ -339,7 +700,7 @@ ${sourceText}
         ],
         config: {
           thinkingConfig: {
-            thinkingLevel: ThinkingLevel.MINIMAL,
+            thinkingLevel: ThinkingLevel.LOW,
           },
           responseMimeType: "application/json",
           responseSchema: {
@@ -353,7 +714,10 @@ ${sourceText}
       });
 
       const parsed = parseGeminiJson(refineResp.text || "{}");
-      const refinedText = (parsed?.refinedText || sourceText).trim();
+      let refinedText = (parsed?.refinedText || sourceText).trim();
+      if (needsServerTranslation(refinedText, sourceLang)) {
+        refinedText = await translateToSimpleEnglish(refinedText, sourceLang);
+      }
       res.setHeader("Content-Type", "application/json");
       res.json({
         refinedText,
@@ -362,11 +726,11 @@ ${sourceText}
       return;
     } catch (geminiErr: any) {
       if (isGeminiAuthOrQuotaError(geminiErr)) {
-        const locallyFixed = refineSpeechLocally(sourceText);
+        const translatedAndFixed = await translateToSimpleEnglish(sourceText, sourceLang);
         res.setHeader("Content-Type", "application/json");
         res.json({
-          refinedText: locallyFixed,
-          corrected: locallyFixed !== sourceText,
+          refinedText: translatedAndFixed,
+          corrected: translatedAndFixed !== sourceText,
         });
         return;
       }
@@ -379,11 +743,21 @@ ${sourceText}
   }
 });
 
-// API route: AI Speech-to-Text (gemini-3.5-transcribe) + AI Sentence/Word Correction & Extraction (gemini-3.1-flash-lite)
+// API route: AI Speech-to-Text + Simple English Normalization & Extraction
 app.post("/api/analyze-audio", async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { audio, mimeType, textBackup, liveTranscript, pastEntries, userAge, parentEmail } = req.body;
-    const backupText = (textBackup || liveTranscript || "").trim();
+    const {
+      audio,
+      mimeType,
+      textBackup,
+      liveTranscript,
+      rawSpokenTranscript,
+      sourceLang,
+      pastEntries,
+      userAge,
+      parentEmail,
+    } = req.body;
+    const backupText = (textBackup || rawSpokenTranscript || liveTranscript || "").trim();
 
     if (!audio && !backupText) {
       res.setHeader("Content-Type", "application/json");
@@ -396,7 +770,6 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     try {
       const ai = getGeminiClient();
 
-      // Step 1: Convert voice audio to text using gemini-3.5-transcribe
       if (audio) {
         const audioPart = {
           inlineData: {
@@ -411,7 +784,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
             parts: [
               audioPart,
               {
-                text: "Transcribe this spoken audio accurately in its spoken language. Preserve exact words, names, and numbers. Return only the spoken text.",
+                text: `Listen carefully and transcribe this spoken audio accurately in its spoken language${sourceLang && sourceLang !== "en" ? ` (expected spoken language code: ${sourceLang})` : ""}. Preserve exact meaning, names, and numbers without guessing unrelated English homophones. Return only the spoken text.`,
               },
             ],
           },
@@ -426,33 +799,29 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
       if (!rawSpokenText) {
         res.setHeader("Content-Type", "application/json");
         res.status(422).json({
-          error: "No spoken words were detected in the audio. Please speak clearly or type a quick note.",
+          error: "No spoken words were detected in the audio. Please speak clearly or type a quick note below.",
         });
         return;
       }
 
-      // Step 2: AI cleans misspellings / wrong-word errors, ensures sensible sentence structure,
-      // and extracts ONLY category-specific statements (Wins / Hard Moments / Slowdowns).
       const systemPrompt = `
         You are the speech cleanup and reflection organizer for Lumina.
 
-        STRICT CORRECTION & EXTRACTION RULES:
-        1. Review the input spoken/written text carefully:
-           - Detect any misspellings or wrong/misheard words (e.g., speech-to-text homophone mistakes that contradict sentence context) and correct them.
-           - Add clear sentence boundaries, punctuation, and natural connecting words only where incomplete so every sentence makes clear, natural sense while keeping the speaker's exact meaning, facts, and language.
-           - Put this corrected, natural version into "transcript".
-        2. Detect the language ("English", "Urdu", or "Urdu · English") in "detectedLanguage".
-        3. Extract ONLY the specific statements belonging to each category directly from the corrected text:
-           - "winsExtracted": Array of ONLY the accomplishments, finished tasks, breakthroughs, or positive progress. Return [] if none.
-           - "hardMomentsExtracted": Array of ONLY the difficulties, stress, fatigue, obstacles, or emotional weight. Return [] if none.
-           - "slowdownsExtracted": Array of ONLY the distractions, procrastination, wasted time, delays, or lost focus. Return [] if none.
-           IMPORTANT: Do NOT put the whole text into these arrays unless the entire text is a single sentence of that category. Extract only the relevant clauses/sentences!
-        4. Set primary "category" to "win", "resilience" (for hard moment), or "slowdown" based on the dominant outcome, and set booleans "isWin" and "resiliencePoint" accordingly.
-        5. Set "win" to 1 concise sentence (max 15 words) summarizing the primary point in plain everyday language.
-        6. Set "slowdownCause" to 1 plain sentence naming what triggered any slowdown, or null if none.
-        7. Set "feedback" to 1 direct grounded sentence referencing something specific the speaker actually said.
-        8. Set "safetyTier" to "standard" normally, or "crisis" ONLY if explicit self-harm or immediate danger to life is stated (set isCrisis=true and provide crisisResources).
-        9. Never use robotic buzzwords like "crystallize", "agency", "sovereign", "locus", "synthesize", or "void".
+        STRICT ENGLISH & SIMPLE WORDING RULES:
+        1. ALWAYS write and store EVERY output field ("transcript", "win", "winsExtracted", "hardMomentsExtracted", "slowdownsExtracted", "feedback", "slowdownCause") in simple, easy-to-understand English—even if the speaker spoke Urdu, Roman Urdu, Arabic, Hindi, Spanish, or any other language.
+        2. Use short, plain, everyday English words that anyone can read easily. Never leave ANY non-English word in the output.
+        3. Detect and fix any misspellings or wrong/misheard words and make sure every sentence makes clear sense. Put this clean English text in "transcript".
+        4. Set "detectedLanguage" to "English".
+        5. Extract ONLY the specific statements belonging to each category directly from the English text:
+           - "winsExtracted": Array of ONLY the wins, finished tasks, or good progress in simple English. Return [] if none.
+           - "hardMomentsExtracted": Array of ONLY the difficulties, hardships, stress, fatigue, or tough problems in simple English. Return [] if none.
+           - "slowdownsExtracted": Array of ONLY the distractions, delays, wasted time, or lost focus in simple English. Return [] if none.
+           IMPORTANT: Do NOT put the whole text into these arrays unless the entire text belongs to one category. Extract only the matching sentences/points!
+        6. Set primary "category" to "win", "resilience" (for hard moment), or "slowdown", and set booleans "isWin" and "resiliencePoint" accordingly.
+        7. Set "win" to 1 short, easy sentence (max 15 words) in plain English.
+        8. Set "slowdownCause" to 1 plain English sentence naming what slowed them down, or null if none.
+        9. Set "feedback" to 1 simple, friendly English sentence mentioning what the speaker shared.
+        10. Set "safetyTier" to "standard" normally, or "crisis" ONLY if explicit self-harm or immediate danger is stated (set isCrisis=true and provide crisisResources).
 
         Return valid JSON matching the schema.
       `;
@@ -475,7 +844,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         contents,
         config: {
           thinkingConfig: {
-            thinkingLevel: ThinkingLevel.MINIMAL,
+            thinkingLevel: ThinkingLevel.LOW,
           },
           responseMimeType: "application/json",
           responseSchema: {
@@ -531,21 +900,8 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
         throw new Error("Empty response from AI engine");
       }
 
-      const parsedResult = parseGeminiJson(responseText);
-      const correctedTranscript = (parsedResult.transcript || "").trim() || refineSpeechLocally(rawSpokenText);
-      parsedResult.transcript = correctedTranscript;
-
-      // Ensure non-empty deterministic arrays if Gemini missed any
-      if (
-        (!parsedResult.winsExtracted || parsedResult.winsExtracted.length === 0) &&
-        (!parsedResult.hardMomentsExtracted || parsedResult.hardMomentsExtracted.length === 0) &&
-        (!parsedResult.slowdownsExtracted || parsedResult.slowdownsExtracted.length === 0)
-      ) {
-        const localExtracted = extractCategorySegments(correctedTranscript);
-        parsedResult.winsExtracted = localExtracted.winsExtracted;
-        parsedResult.hardMomentsExtracted = localExtracted.hardMomentsExtracted;
-        parsedResult.slowdownsExtracted = localExtracted.slowdownsExtracted;
-      }
+      const rawParsed = parseGeminiJson(responseText);
+      const parsedResult = await ensureResultIsEnglish(rawParsed, rawSpokenText, sourceLang);
 
       if (parsedResult.isCrisis && (userAge < 18 || parsedResult.parentAlertTriggered) && parentEmail) {
         parentalNoticeLogs.push({
@@ -562,7 +918,7 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     } catch (geminiErr: any) {
       if (isGeminiAuthOrQuotaError(geminiErr)) {
         if (rawSpokenText) {
-          const fallback = analyzeLocally(rawSpokenText);
+          const fallback = await analyzeLocally(rawSpokenText, sourceLang);
           res.setHeader("Content-Type", "application/json");
           res.json(fallback);
           return;
@@ -581,6 +937,139 @@ app.post("/api/analyze-audio", async (req: express.Request, res: express.Respons
     res.status(500).json({
       error: error.message || "Could not process entry. Please try again.",
     });
+  }
+});
+
+// API route: Batch-translate existing stored entries so every historical record is saved & displayed in simple English
+app.post("/api/translate-entries", async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    const incoming = req.body?.entries;
+    if (!Array.isArray(incoming) || incoming.length === 0) {
+      res.setHeader("Content-Type", "application/json");
+      res.json({ entries: [] });
+      return;
+    }
+
+    const batch = incoming.slice(0, 25);
+
+    try {
+      const ai = getGeminiClient();
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents: [
+          {
+            text: `Translate every stored journal entry below into simple, easy-to-understand everyday English.
+Rules:
+1. Keep the exact "id" for every entry.
+2. Convert "win", "transcript", "feedback", "slowdownCause", "winsExtracted", "hardMomentsExtracted", and "slowdownsExtracted" completely into simple everyday English—even if originally written in Urdu script, Roman Urdu, Hindi, Arabic, or any other language.
+3. Preserve each category correctly: wins in winsExtracted, difficulties/resilience in hardMomentsExtracted, distractions/delays in slowdownsExtracted.
+Return JSON: { "entries": [...] }.
+
+ENTRIES:
+${JSON.stringify(
+  batch.map((e: any) => ({
+    id: e.id,
+    win: e.win || "",
+    transcript: e.transcript || "",
+    feedback: e.feedback || "",
+    slowdownCause: e.slowdownCause || null,
+    winsExtracted: e.winsExtracted || [],
+    hardMomentsExtracted: e.hardMomentsExtracted || [],
+    slowdownsExtracted: e.slowdownsExtracted || [],
+  }))
+)}`,
+          },
+        ],
+        config: {
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              entries: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    win: { type: Type.STRING },
+                    transcript: { type: Type.STRING },
+                    feedback: { type: Type.STRING },
+                    slowdownCause: { type: Type.STRING },
+                    winsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    hardMomentsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    slowdownsExtracted: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  },
+                  required: ["id", "win", "transcript", "winsExtracted", "hardMomentsExtracted", "slowdownsExtracted"],
+                },
+              },
+            },
+            required: ["entries"],
+          },
+        },
+      });
+
+      const parsed = parseGeminiJson(response.text || "{}");
+      const translatedMap = new Map<string, any>();
+      if (Array.isArray(parsed?.entries)) {
+        for (const item of parsed.entries) {
+          if (item?.id) translatedMap.set(item.id, item);
+        }
+      }
+
+      const normalizedEntries = await Promise.all(
+        batch.map(async (orig: any) => {
+          const matched = translatedMap.get(orig.id) || orig;
+          const verified = await ensureResultIsEnglish(matched, orig.transcript || orig.win || "");
+          return {
+            ...orig,
+            win: verified.win,
+            transcript: verified.transcript,
+            feedback: verified.feedback,
+            slowdownCause: verified.slowdownCause,
+            winsExtracted: verified.winsExtracted,
+            hardMomentsExtracted: verified.hardMomentsExtracted,
+            slowdownsExtracted: verified.slowdownsExtracted,
+            detectedLanguage: "English",
+          };
+        })
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.json({ entries: normalizedEntries });
+      return;
+    } catch (geminiErr: any) {
+      if (!isGeminiAuthOrQuotaError(geminiErr)) {
+        throw geminiErr;
+      }
+
+      const normalizedEntries = await Promise.all(
+        batch.map(async (orig: any) => {
+          const verified = await ensureResultIsEnglish(orig, orig.transcript || orig.win || "");
+          return {
+            ...orig,
+            win: verified.win,
+            transcript: verified.transcript,
+            feedback: verified.feedback,
+            slowdownCause: verified.slowdownCause,
+            winsExtracted: verified.winsExtracted,
+            hardMomentsExtracted: verified.hardMomentsExtracted,
+            slowdownsExtracted: verified.slowdownsExtracted,
+            detectedLanguage: "English",
+          };
+        })
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.json({ entries: normalizedEntries });
+      return;
+    }
+  } catch (error: any) {
+    console.error("Error in /api/translate-entries:", error);
+    res.setHeader("Content-Type", "application/json");
+    res.status(500).json({ error: error.message || "Could not translate entries." });
   }
 });
 

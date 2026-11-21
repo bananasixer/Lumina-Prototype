@@ -12,9 +12,20 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserSession, WinEntry } from "../types";
-import { calculateStreak } from "../utils/sovereignMetrics";
+import { calculateWinStreak } from "../utils/sovereignMetrics";
 import { extractCategorySegments } from "../utils/extractCategories";
 import { safeApiPost } from "../utils/safeApi";
+
+const SPOKEN_LANGUAGES = [
+  { code: "en-US", gtx: "en", label: "English" },
+  { code: "ar-SA", gtx: "ar", label: "Arabic" },
+  { code: "fr-FR", gtx: "fr", label: "French" },
+  { code: "hi-IN", gtx: "hi", label: "Hindi" },
+  { code: "pt-BR", gtx: "pt", label: "Portuguese" },
+  { code: "es-ES", gtx: "es", label: "Spanish" },
+  { code: "tr-TR", gtx: "tr", label: "Turkish" },
+  { code: "ur-PK", gtx: "ur", label: "Urdu" },
+] as const;
 
 interface CommandCenterProps {
   user: UserSession;
@@ -59,7 +70,7 @@ export default function CommandCenter({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isRefiningLive, setIsRefiningLive] = useState(false);
+  const [processingStep, setProcessingStep] = useState("Translating & correcting English...");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [typedText, setTypedText] = useState("");
   const [showCheckmark, setShowCheckmark] = useState(false);
@@ -69,13 +80,28 @@ export default function CommandCenter({
   const [isEditing, setIsEditing] = useState(false);
   const [showFullTranscript, setShowFullTranscript] = useState(false);
 
-  const [liveTranscript, setLiveTranscript] = useState("");
+  const [pendingAudio, setPendingAudio] = useState<{
+    base64Audio: string | null;
+    audioUrl: string | null;
+    mimeType: string;
+    capturedText: string;
+    duration: number;
+  } | null>(null);
+
+  const [spokenLang, setSpokenLang] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("lumina_spoken_lang");
+      if (saved && SPOKEN_LANGUAGES.some((l) => l.code === saved)) return saved;
+    } catch {}
+    return typeof navigator !== "undefined" && navigator.language?.startsWith("ur")
+      ? "ur-PK"
+      : "en-US";
+  });
+
+  const [liveNativePreview, setLiveNativePreview] = useState("");
   const rawLiveTextRef = useRef("");
-  const refinedLiveTextRef = useRef("");
-  const lastRefinedInputRef = useRef("");
-  const refineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioLiveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const refineSeqRef = useRef(0);
+  const spokenLangRef = useRef(spokenLang);
+  const durationRef = useRef(0);
   const recognitionRef = useRef<any>(null);
 
   const [aiResult, setAiResult] = useState<AnalysisResult | null>(null);
@@ -89,11 +115,24 @@ export default function CommandCenter({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isRecordingRef = useRef(false);
 
-  const currentStreak = calculateStreak(entries);
+  const currentStreak = calculateWinStreak(entries).currentStreak;
+  const activeLangObj =
+    SPOKEN_LANGUAGES.find((l) => l.code === spokenLang) || SPOKEN_LANGUAGES[0];
+
+  useEffect(() => {
+    spokenLangRef.current = spokenLang;
+    try {
+      localStorage.setItem("lumina_spoken_lang", spokenLang);
+    } catch {}
+  }, [spokenLang]);
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
     onRecordingChange?.(isRecording);
+    if (isRecording) {
+      const rafId = requestAnimationFrame(() => drawVisualizer());
+      return () => cancelAnimationFrame(rafId);
+    }
   }, [isRecording, onRecordingChange]);
 
   const getGreeting = () => {
@@ -116,39 +155,88 @@ export default function CommandCenter({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const logicalWidth = canvas.clientWidth || 320;
+    const logicalHeight = canvas.clientHeight || 48;
+    if (canvas.width !== Math.round(logicalWidth * dpr) || canvas.height !== Math.round(logicalHeight * dpr)) {
+      canvas.width = Math.round(logicalWidth * dpr);
+      canvas.height = Math.round(logicalHeight * dpr);
+    }
+
     const analyser = analyserRef.current;
     const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
+    const freqArray = new Uint8Array(bufferLength);
+    const timeArray = new Uint8Array(analyser.fftSize);
+    let phase = 0;
 
     const draw = () => {
       if (!isRecordingRef.current) return;
       animationFrameRef.current = requestAnimationFrame(draw);
-      analyser.getByteFrequencyData(dataArray);
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      analyser.getByteFrequencyData(freqArray);
+      analyser.getByteTimeDomainData(timeArray);
+      phase += 0.09;
 
-      const barCount = 36;
-      const step = Math.max(1, Math.floor(bufferLength / barCount));
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+      const centerY = logicalHeight / 2;
+
+      // 1. Center-mirrored vocal spectrum bars (weighted to active voice range)
+      const barCount = 42;
       const gap = 3;
-      const barWidth = Math.max(2, (canvas.width - gap * barCount) / barCount);
+      const barWidth = Math.max(2, (logicalWidth - gap * (barCount - 1)) / barCount);
+      const voiceMaxBin = Math.max(barCount, Math.floor(bufferLength * 0.65));
+      const halfCount = Math.floor(barCount / 2);
 
       for (let i = 0; i < barCount; i++) {
-        const value = dataArray[i * step] || 0;
-        const normalized = Math.max(0.14, value / 255);
-        const barHeight = Math.max(3, normalized * (canvas.height - 4));
+        const distFromCenter = Math.abs(i - halfCount);
+        const binIndex = Math.min(
+          voiceMaxBin - 1,
+          Math.floor((distFromCenter / Math.max(1, halfCount)) * (voiceMaxBin * 0.85))
+        );
+        const rawEnergy = (freqArray[binIndex] || 0) / 255;
+        const idlePulse = 0.1 + 0.06 * Math.sin(phase * 1.4 - distFromCenter * 0.38);
+        const normalized = Math.min(1, Math.max(idlePulse, rawEnergy * 1.15));
+        const barHeight = Math.max(4, normalized * (logicalHeight - 8));
         const x = i * (barWidth + gap);
-        const y = (canvas.height - barHeight) / 2;
+        const y = centerY - barHeight / 2;
 
         ctx.fillStyle =
-          i % 5 === 4 || normalized > 0.72
-            ? "#C86D44"
+          normalized > 0.72
+            ? "rgba(200, 109, 68, 0.82)"
             : i % 2 === 0
-            ? "#0F8B8D"
-            : "#0055FF";
+            ? "rgba(15, 139, 141, 0.78)"
+            : "rgba(0, 85, 255, 0.72)";
         ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, 2);
+        ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2);
         ctx.fill();
       }
+
+      // 2. Real-time time-domain acoustic wave ribbon
+      const waveGrad = ctx.createLinearGradient(0, 0, logicalWidth, 0);
+      waveGrad.addColorStop(0, "#0F8B8D");
+      waveGrad.addColorStop(0.5, "#0055FF");
+      waveGrad.addColorStop(1, "#C86D44");
+
+      ctx.beginPath();
+      ctx.lineWidth = 1.75;
+      ctx.strokeStyle = waveGrad;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      const sliceWidth = logicalWidth / Math.max(1, timeArray.length - 1);
+      for (let i = 0; i < timeArray.length; i++) {
+        const sample = (timeArray[i] - 128) / 128; // -1..1
+        const microRipple = Math.sin(phase + i * 0.14) * 1.5;
+        const y = centerY + sample * (logicalHeight * 0.75) + microRipple;
+        const x = i * sliceWidth;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
     };
 
     draw();
@@ -165,80 +253,18 @@ export default function CommandCenter({
       reader.onerror = () => resolve("");
     });
 
-  // Live AI pass while the user is speaking: fixes misspellings, replaces misheard wrong words,
-  // and forms complete, sensible sentences in real time.
-  const runLiveAiCorrection = async (rawText: string, includeAudioSnapshot = false) => {
-    if (!isRecordingRef.current) return;
-    const cleanInput = rawText.trim();
-    if (!cleanInput && !includeAudioSnapshot) return;
-    if (cleanInput && cleanInput === lastRefinedInputRef.current && !includeAudioSnapshot) return;
-
-    const seq = ++refineSeqRef.current;
-    lastRefinedInputRef.current = cleanInput;
-    setIsRefiningLive(true);
-
-    try {
-      let audioPayload: string | undefined;
-      let mimePayload: string | undefined;
-      if (includeAudioSnapshot && audioChunksRef.current.length > 0 && !cleanInput) {
-        const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
-        const snapshotBlob = new Blob(audioChunksRef.current, { type: mime });
-        if (snapshotBlob.size > 0 && snapshotBlob.size < 12 * 1024 * 1024) {
-          audioPayload = await blobToBase64(snapshotBlob);
-          mimePayload = mime;
-        }
-      }
-
-      if (!cleanInput && !audioPayload) {
-        return;
-      }
-
-      const data = await safeApiPost<{ refinedText: string }>("/api/refine-speech", {
-        text: cleanInput || undefined,
-        audio: audioPayload,
-        mimeType: mimePayload,
-      });
-
-      // Only apply if this is still the latest live speech request and user hasn't raced ahead drastically
-      if (isRecordingRef.current && seq === refineSeqRef.current && data.refinedText) {
-        refinedLiveTextRef.current = data.refinedText;
-        // If user continued speaking while waiting, keep refined prefix + only trailing unspoken raw words
-        const currentRaw = rawLiveTextRef.current.trim();
-        if (!cleanInput || currentRaw.length <= cleanInput.length + 3) {
-          setLiveTranscript(data.refinedText);
-        } else {
-          const tail = currentRaw.slice(cleanInput.length).trim();
-          setLiveTranscript(tail ? `${data.refinedText} ${tail}` : data.refinedText);
-        }
-      }
-    } catch {
-      // Fail silently during live capture so recording is never interrupted
-    } finally {
-      if (seq === refineSeqRef.current) {
-        setIsRefiningLive(false);
-      }
-    }
-  };
-
-  const scheduleLiveCorrection = (rawText: string) => {
-    if (refineTimerRef.current) {
-      clearTimeout(refineTimerRef.current);
-    }
-    refineTimerRef.current = setTimeout(() => {
-      runLiveAiCorrection(rawText, false);
-    }, 750);
-  };
-
   const startRecording = async () => {
     setErrorMessage(null);
     setAiResult(null);
+    if (pendingAudio?.audioUrl) {
+      URL.revokeObjectURL(pendingAudio.audioUrl);
+    }
+    setPendingAudio(null);
     setShowFullTranscript(false);
-    setLiveTranscript("");
+    setLiveNativePreview("");
     rawLiveTextRef.current = "";
-    refinedLiveTextRef.current = "";
-    lastRefinedInputRef.current = "";
-    refineSeqRef.current = 0;
     audioChunksRef.current = [];
+    durationRef.current = 0;
     setRecordingDuration(0);
 
     try {
@@ -253,8 +279,12 @@ export default function CommandCenter({
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioContextClass) {
         const audioContext = new AudioContextClass();
+        if (audioContext.state === "suspended") {
+          await audioContext.resume().catch(() => {});
+        }
         const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 128;
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.72;
         const source = audioContext.createMediaStreamSource(stream);
         source.connect(analyser);
         audioContextRef.current = audioContext;
@@ -278,13 +308,13 @@ export default function CommandCenter({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        await processRecordedAudio();
+        await stageRecordedAudioForOkay();
       };
 
       mediaRecorder.start(250);
       isRecordingRef.current = true;
       setIsRecording(true);
-      setTimeout(drawVisualizer, 50);
+      requestAnimationFrame(() => drawVisualizer());
 
       const SpeechRecognitionClass =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -294,7 +324,7 @@ export default function CommandCenter({
           recognition.continuous = true;
           recognition.interimResults = true;
           recognition.maxAlternatives = 1;
-          recognition.lang = navigator.language?.startsWith("ur") ? "ur-PK" : "en-US";
+          recognition.lang = spokenLangRef.current || "en-US";
 
           recognition.onresult = (event: any) => {
             let combined = "";
@@ -304,16 +334,7 @@ export default function CommandCenter({
             const cleanRaw = combined.replace(/\s+/g, " ").trim();
             if (cleanRaw) {
               rawLiveTextRef.current = cleanRaw;
-              // Show refined sentence prefix + live trailing words immediately, then trigger AI correction
-              if (refinedLiveTextRef.current && cleanRaw.length > lastRefinedInputRef.current.length) {
-                const tail = cleanRaw.slice(lastRefinedInputRef.current.length).trim();
-                setLiveTranscript(
-                  tail ? `${refinedLiveTextRef.current} ${tail}` : refinedLiveTextRef.current
-                );
-              } else {
-                setLiveTranscript(cleanRaw);
-              }
-              scheduleLiveCorrection(cleanRaw);
+              setLiveNativePreview(cleanRaw);
             }
           };
           recognition.onerror = () => {};
@@ -322,15 +343,9 @@ export default function CommandCenter({
         } catch {}
       }
 
-      // Live audio AI transcription fallback every 3s for browsers without SpeechRecognition text
-      audioLiveTimerRef.current = setInterval(() => {
-        if (isRecordingRef.current && !rawLiveTextRef.current.trim()) {
-          runLiveAiCorrection("", true);
-        }
-      }, 3000);
-
       timerRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
+        durationRef.current += 1;
+        setRecordingDuration(durationRef.current);
       }, 1000);
     } catch (err: any) {
       let errorText = "Microphone access is unavailable. You can type a quick note below.";
@@ -347,14 +362,6 @@ export default function CommandCenter({
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    if (refineTimerRef.current) {
-      clearTimeout(refineTimerRef.current);
-      refineTimerRef.current = null;
-    }
-    if (audioLiveTimerRef.current) {
-      clearInterval(audioLiveTimerRef.current);
-      audioLiveTimerRef.current = null;
-    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -368,27 +375,22 @@ export default function CommandCenter({
       audioContextRef.current.close().catch(() => {});
     }
     setIsRecording(false);
-    setIsRefiningLive(false);
     setShowCheckmark(true);
-    setTimeout(() => setShowCheckmark(false), 750);
+    setTimeout(() => setShowCheckmark(false), 600);
 
-    // Brief 180ms flush before stopping MediaRecorder so trailing spoken words aren't clipped
+    // Brief flush before stopping MediaRecorder so trailing spoken words aren't clipped
     setTimeout(() => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
-    }, 180);
+    }, 200);
   };
 
-  const processRecordedAudio = async () => {
-    const bestLiveText = (
-      refinedLiveTextRef.current ||
-      liveTranscript ||
-      rawLiveTextRef.current ||
-      ""
-    ).trim();
+  const stageRecordedAudioForOkay = async () => {
+    const capturedText = rawLiveTextRef.current.trim();
     const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
     let base64Audio: string | null = null;
+    let audioUrl: string | null = null;
 
     if (audioChunksRef.current.length > 0) {
       const audioBlob = new Blob(audioChunksRef.current, { type: mime });
@@ -396,11 +398,43 @@ export default function CommandCenter({
         setErrorMessage("Recording exceeded 24 MB. Please keep clips concise.");
         return;
       }
-      base64Audio = await blobToBase64(audioBlob);
+      if (audioBlob.size > 0) {
+        audioUrl = URL.createObjectURL(audioBlob);
+        base64Audio = await blobToBase64(audioBlob);
+      }
     }
 
+    if (!base64Audio && !capturedText) {
+      setErrorMessage("No audio was recorded. Please speak clearly or type a quick note below.");
+      return;
+    }
+
+    setPendingAudio({
+      base64Audio,
+      audioUrl,
+      mimeType: mime,
+      capturedText,
+      duration: durationRef.current,
+    });
+  };
+
+  const handleConfirmProcessAudio = async () => {
+    if (!pendingAudio) return;
+
+    const langMeta =
+      SPOKEN_LANGUAGES.find((l) => l.code === spokenLangRef.current) || SPOKEN_LANGUAGES[0];
+    const currentPending = pendingAudio;
+
     setIsProcessing(true);
+    setProcessingStep("Reading your voice recording...");
     setErrorMessage(null);
+
+    const stepTimer1 = setTimeout(() => {
+      setProcessingStep("Translating & correcting English grammar...");
+    }, 700);
+    const stepTimer2 = setTimeout(() => {
+      setProcessingStep("Organizing your wins & hard moments...");
+    }, 1800);
 
     try {
       const pastEntriesForAnalysis = entries.slice(0, 4).map((e) => ({
@@ -412,15 +446,16 @@ export default function CommandCenter({
       }));
 
       const data = await safeApiPost<AnalysisResult>("/api/analyze-audio", {
-        audio: base64Audio || undefined,
-        mimeType: mime,
-        liveTranscript: bestLiveText || undefined,
+        audio: currentPending.base64Audio || undefined,
+        mimeType: currentPending.mimeType,
+        rawSpokenTranscript: currentPending.capturedText.trim() || undefined,
+        sourceLang: langMeta.gtx,
         pastEntries: pastEntriesForAnalysis,
         userAge: user.age,
         parentEmail: user.parentEmail,
       });
 
-      const extracted = extractCategorySegments(data.transcript || bestLiveText);
+      const extracted = extractCategorySegments(data.transcript || currentPending.capturedText);
       const enriched: AnalysisResult = {
         ...data,
         winsExtracted:
@@ -442,20 +477,38 @@ export default function CommandCenter({
       setSelectedCategory(initialCat);
       setSlowdownCause(enriched.slowdownCause || "");
       setShowFullTranscript(false);
+      if (currentPending.audioUrl) {
+        URL.revokeObjectURL(currentPending.audioUrl);
+      }
+      setPendingAudio(null);
       setAiResult(enriched);
       setTopicStatus(enriched.isGrowthStory ? "resolved" : "ongoing");
     } catch (err: any) {
       setErrorMessage(err.message || "Could not process recording. Please try again.");
     } finally {
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
       setIsProcessing(false);
     }
+  };
+
+  const handleRetakeRecording = () => {
+    if (pendingAudio?.audioUrl) {
+      URL.revokeObjectURL(pendingAudio.audioUrl);
+    }
+    setPendingAudio(null);
+    setErrorMessage(null);
   };
 
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!typedText.trim()) return;
 
+    const langMeta =
+      SPOKEN_LANGUAGES.find((l) => l.code === spokenLangRef.current) || SPOKEN_LANGUAGES[0];
+
     setIsProcessing(true);
+    setProcessingStep("Translating & correcting English grammar...");
     setErrorMessage(null);
     setAiResult(null);
     setShowFullTranscript(false);
@@ -471,6 +524,7 @@ export default function CommandCenter({
 
       const data = await safeApiPost<AnalysisResult>("/api/analyze-audio", {
         textBackup: typedText.trim(),
+        sourceLang: langMeta.gtx,
         pastEntries: pastEntriesForAnalysis,
         userAge: user.age,
         parentEmail: user.parentEmail,
@@ -537,7 +591,7 @@ export default function CommandCenter({
       winsExtracted: aiResult.winsExtracted || [],
       hardMomentsExtracted: aiResult.hardMomentsExtracted || [],
       slowdownsExtracted: aiResult.slowdownsExtracted || [],
-      detectedLanguage: aiResult.detectedLanguage || "English",
+      detectedLanguage: "English",
       sourceType: "voice",
       feedback: aiResult.feedback,
       slowdownCause: isSlowdownOutcome
@@ -590,8 +644,6 @@ export default function CommandCenter({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (refineTimerRef.current) clearTimeout(refineTimerRef.current);
-      if (audioLiveTimerRef.current) clearInterval(audioLiveTimerRef.current);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (recognitionRef.current) {
         try {
@@ -641,115 +693,233 @@ export default function CommandCenter({
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="space-y-4"
           >
-            {/* Compact Voice Capture Card */}
-            <div className="apple-card rounded-[24px] p-6 flex flex-col items-center space-y-5 relative overflow-hidden">
-              <div className="relative flex items-center justify-center">
-                {isRecording && (
-                  <>
-                    {[0, 1].map((i) => (
-                      <motion.div
-                        key={i}
-                        className="absolute rounded-full border border-[#0F8B8D]/40 pointer-events-none"
-                        style={{ width: 88, height: 88 }}
-                        initial={{ scale: 1, opacity: 0.75 }}
-                        animate={{ scale: [1, 1.48, 1.82], opacity: [0.65, 0.22, 0] }}
-                        transition={{
-                          duration: 2,
-                          repeat: Infinity,
-                          delay: i * 0.9,
-                          ease: "easeOut",
-                        }}
-                      />
-                    ))}
-                  </>
+            {/* Compact Voice Capture Card or Recorded Confirmation ('Okay') Step */}
+            {pendingAudio ? (
+              <div className="apple-card rounded-[24px] p-6 space-y-4 text-left">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#0F8B8D]/15 pb-3">
+                  <div>
+                    <span className="text-xs font-semibold text-[#0F8B8D]">Recording Ready</span>
+                    <p className="text-[11px] text-[#86868B] mt-0.5 tabular-nums">
+                      {formatDuration(pendingAudio.duration)} recorded · Click Okay to translate &amp; auto-correct
+                    </p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full apple-well border border-[#0F8B8D]/15 text-xs text-[#515154]">
+                    <span className="font-medium text-[#1E4449]">Spoken in</span>
+                    <select
+                      aria-label="Spoken language"
+                      value={spokenLang}
+                      disabled={isProcessing}
+                      onChange={(e) => setSpokenLang(e.target.value)}
+                      className="bg-transparent font-semibold text-[#0F8B8D] focus:outline-none cursor-pointer"
+                    >
+                      {SPOKEN_LANGUAGES.map((lang) => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {pendingAudio.audioUrl && (
+                  <audio
+                    controls
+                    src={pendingAudio.audioUrl}
+                    className="w-full h-9 rounded-full"
+                  />
                 )}
 
-                <button
-                  type="button"
-                  onClick={isRecording ? stopRecording : startRecording}
-                  disabled={isProcessing || showCheckmark}
-                  className={`relative z-10 w-[88px] h-[88px] rounded-full flex flex-col items-center justify-center transition-all cursor-pointer disabled:opacity-60 active:scale-[0.97] ${
-                    showCheckmark
-                      ? "bg-[#EDF7F6] border border-[#0F8B8D]/30 text-[#0F8B8D]"
-                      : isRecording
-                      ? "bg-[#FFFFFF] border-2 border-[#0F8B8D] text-[#0F8B8D] shadow-md"
-                      : "btn-royal"
-                  }`}
-                >
-                  {showCheckmark ? (
-                    <Check className="w-6 h-6 text-[#0F8B8D]" />
-                  ) : isRecording ? (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#C86D44] animate-pulse" />
-                        <Square className="w-3.5 h-3.5 fill-[#0055FF] text-[#0055FF]" />
-                      </div>
-                      <span className="font-mono text-[11px] font-semibold tabular-nums text-[#1D1D1F]">
-                        {formatDuration(recordingDuration)}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-1">
-                      <Mic className="w-6 h-6" />
-                      <span className="text-[11px] font-medium tracking-tight">Record</span>
-                    </div>
-                  )}
-                </button>
-              </div>
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-medium text-[#515154] block">
+                    Captured speech ({activeLangObj.label})
+                  </span>
+                  <textarea
+                    value={pendingAudio.capturedText}
+                    disabled={isProcessing}
+                    onChange={(e) =>
+                      setPendingAudio({ ...pendingAudio, capturedText: e.target.value })
+                    }
+                    rows={3}
+                    placeholder={
+                      pendingAudio.base64Audio
+                        ? "Audio captured cleanly. Click Okay below to transcribe, translate, and auto-correct in English."
+                        : "Type or edit what you said..."
+                    }
+                    className="apple-input w-full rounded-[14px] p-3 text-sm leading-relaxed"
+                  />
+                </div>
 
-              {/* Acoustic Wave Well */}
-              <div className="w-full max-w-sm h-11 rounded-[16px] apple-well px-3.5 flex items-center justify-center overflow-hidden">
-                {isRecording ? (
-                  <canvas ref={canvasRef} width={320} height={36} className="w-full h-9" />
-                ) : isProcessing ? (
-                  <div className="flex items-center gap-2 text-xs font-medium text-[#0F8B8D]">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Cleaning speech &amp; sorting...</span>
+                {isProcessing ? (
+                  <div className="rounded-[16px] apple-well p-4 flex items-center justify-center gap-2.5 text-xs font-medium text-[#0F8B8D]">
+                    <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                    <span>{processingStep}</span>
                   </div>
                 ) : (
-                  <svg className="w-full h-6" viewBox="0 0 320 28" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="idleWaveTriad" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#0F8B8D" stopOpacity="0.85" />
-                        <stop offset="50%" stopColor="#0055FF" stopOpacity="0.8" />
-                        <stop offset="100%" stopColor="#C86D44" stopOpacity="0.8" />
-                      </linearGradient>
-                    </defs>
-                    <motion.path
-                      d="M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14"
-                      fill="none"
-                      stroke="url(#idleWaveTriad)"
-                      strokeWidth="1.8"
-                      animate={{
-                        d: [
-                          "M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14",
-                          "M 0 14 Q 40 24 80 14 T 160 14 T 240 14 T 320 14",
-                          "M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14",
-                        ],
-                      }}
-                      transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                  </svg>
+                  <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleConfirmProcessAudio}
+                      className="btn-royal flex-1 min-h-[46px] py-2.5 px-5 rounded-full text-sm font-medium inline-flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Okay</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRetakeRecording}
+                      className="btn-secondary-apple min-h-[46px] px-5 py-2.5 rounded-full text-xs font-medium text-[#515154] cursor-pointer"
+                    >
+                      Record Again
+                    </button>
+                  </div>
                 )}
               </div>
+            ) : (
+              <div className="apple-card rounded-[24px] p-6 flex flex-col items-center space-y-5 relative overflow-hidden">
+                {/* Balanced Spoken Language Selector */}
+                <div className="w-full flex items-center justify-center">
+                  <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full apple-well border border-[#0F8B8D]/15 text-xs text-[#515154]">
+                    <span className="font-medium text-[#1E4449]">Speaking in</span>
+                    <select
+                      aria-label="Spoken language"
+                      value={spokenLang}
+                      disabled={isRecording || isProcessing}
+                      onChange={(e) => setSpokenLang(e.target.value)}
+                      className="bg-transparent font-semibold text-[#0F8B8D] focus:outline-none cursor-pointer disabled:opacity-60"
+                    >
+                      {SPOKEN_LANGUAGES.map((lang) => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
-              {isRecording && (
-                <div className="w-full rounded-[16px] apple-well p-3.5 text-xs text-[#1D1D1F] min-h-[52px] max-h-28 overflow-y-auto text-left leading-relaxed space-y-1">
-                  <div className="flex items-center justify-between text-[11px] font-medium text-[#0F8B8D]">
-                    <span>Live Speech Cleanup</span>
-                    {isRefiningLive && <span className="text-[#86868B]">Refining...</span>}
+                <div className="relative flex items-center justify-center">
+                  {isRecording && (
+                    <>
+                      {[0, 1].map((i) => (
+                        <motion.div
+                          key={i}
+                          className="absolute rounded-full border border-[#0F8B8D]/40 pointer-events-none"
+                          style={{ width: 88, height: 88 }}
+                          initial={{ scale: 1, opacity: 0.75 }}
+                          animate={{ scale: [1, 1.48, 1.82], opacity: [0.65, 0.22, 0] }}
+                          transition={{
+                            duration: 2,
+                            repeat: Infinity,
+                            delay: i * 0.9,
+                            ease: "easeOut",
+                          }}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={isRecording ? stopRecording : startRecording}
+                    disabled={isProcessing || showCheckmark}
+                    className={`relative z-10 w-[88px] h-[88px] rounded-full flex flex-col items-center justify-center transition-all cursor-pointer disabled:opacity-60 active:scale-[0.97] ${
+                      showCheckmark
+                        ? "bg-[#EDF7F6] border border-[#0F8B8D]/30 text-[#0F8B8D]"
+                        : isRecording
+                        ? "bg-[#FFFFFF] border-2 border-[#0F8B8D] text-[#0F8B8D] shadow-md"
+                        : "btn-royal"
+                    }`}
+                  >
+                    {showCheckmark ? (
+                      <Check className="w-6 h-6 text-[#0F8B8D]" />
+                    ) : isRecording ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#C86D44] animate-pulse" />
+                          <Square className="w-3.5 h-3.5 fill-[#0055FF] text-[#0055FF]" />
+                        </div>
+                        <span className="font-mono text-[11px] font-semibold tabular-nums text-[#1D1D1F]">
+                          {formatDuration(recordingDuration)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1">
+                        <Mic className="w-6 h-6" />
+                        <span className="text-[11px] font-medium tracking-tight">Record</span>
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {/* Real-Time Acoustic Waveform Well */}
+                <div className="w-full max-w-sm space-y-1.5">
+                  <div className="w-full h-14 rounded-[16px] apple-well px-3.5 flex items-center justify-center overflow-hidden relative">
+                    {isRecording ? (
+                      <canvas
+                        ref={canvasRef}
+                        aria-label="Live audio waveform"
+                        className="w-full h-12 block"
+                      />
+                    ) : isProcessing ? (
+                      <div className="flex items-center gap-2 text-xs font-medium text-[#0F8B8D]">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>{processingStep}</span>
+                      </div>
+                    ) : (
+                      <svg className="w-full h-7" viewBox="0 0 320 28" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="idleWaveTriad" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#0F8B8D" stopOpacity="0.85" />
+                            <stop offset="50%" stopColor="#0055FF" stopOpacity="0.8" />
+                            <stop offset="100%" stopColor="#C86D44" stopOpacity="0.8" />
+                          </linearGradient>
+                        </defs>
+                        <motion.path
+                          d="M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14"
+                          fill="none"
+                          stroke="url(#idleWaveTriad)"
+                          strokeWidth="1.8"
+                          animate={{
+                            d: [
+                              "M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14",
+                              "M 0 14 Q 40 24 80 14 T 160 14 T 240 14 T 320 14",
+                              "M 0 14 Q 40 4 80 14 T 160 14 T 240 14 T 320 14",
+                            ],
+                          }}
+                          transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      </svg>
+                    )}
                   </div>
-                  {liveTranscript ? (
-                    <p>
-                      {liveTranscript}
-                      <span className="inline-block w-1.5 h-3 bg-[#0F8B8D] ml-1 animate-pulse align-middle" />
-                    </p>
-                  ) : (
-                    <span className="text-[#86868B]">Listening and correcting sentences...</span>
+                  {isRecording && (
+                    <div className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-[#0F8B8D]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#C86D44] animate-pulse" />
+                      <span>
+                        Recording in {activeLangObj.label} · Tap stop when done, then Okay
+                      </span>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {isRecording && (
+                  <div className="w-full rounded-[16px] apple-well p-3.5 text-xs text-[#1D1D1F] min-h-[52px] max-h-32 overflow-y-auto text-left leading-relaxed space-y-1">
+                    <span className="text-[11px] font-medium text-[#0F8B8D] block">
+                      Recording ({activeLangObj.label})
+                    </span>
+                    {liveNativePreview ? (
+                      <p className="text-[#1D1D1F]">
+                        {liveNativePreview}
+                        <span className="inline-block w-1.5 h-3 bg-[#0F8B8D] ml-1 animate-pulse align-middle" />
+                      </p>
+                    ) : (
+                      <span className="text-[#86868B]">
+                        Speak normally in {activeLangObj.label}. Translation and English correction will run when you tap Okay.
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Compact Quick Note Bar */}
             <form
@@ -841,10 +1011,10 @@ export default function CommandCenter({
               };
               const categoryHeading =
                 selectedCategory === "win"
-                  ? "Wins from this entry"
+                  ? "Your wins"
                   : selectedCategory === "resilience"
-                  ? "Hard moments from this entry"
-                  : "Slowdowns from this entry";
+                  ? "Hard moments"
+                  : "Slowdowns";
               const categoryAccent =
                 selectedCategory === "win"
                   ? "text-[#0055FF]"
@@ -894,7 +1064,7 @@ export default function CommandCenter({
                       </ul>
                     ) : (
                       <p className="rounded-[14px] apple-well px-4 py-3 text-xs text-[#86868B]">
-                        No specific {selectedCategory === "win" ? "wins" : selectedCategory === "resilience" ? "hard moments" : "slowdowns"} found in this entry.
+                        No {selectedCategory === "win" ? "wins" : selectedCategory === "resilience" ? "hard moments" : "slowdowns"} in this entry.
                       </p>
                     )}
                   </div>
